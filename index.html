@@ -180,6 +180,24 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
     <label class="fld">工事の種類<select id="iKind"><option value="">未選択</option><option value="new">新築</option><option value="reform">リフォーム</option></select></label>
     <label class="fld">着工日<input id="iStart" type="date"></label>
     <label class="fld">引き渡し予定日<input id="iHand" type="date"></label>
+    <div class="fld" style="margin-top:14px;font-weight:600">カレンダー購読(自動更新)</div>
+    <p class="empty" id="feedNote" style="text-align:left;padding:4px 0"></p>
+    <button type="button" class="sync" id="feedMake">購読URLを作る</button>
+    <div id="feedUrlBox" hidden>
+      <label class="fld">この物件の購読URL<input id="feedUrl" readonly></label>
+      <button type="button" class="sync" id="feedCopy">URLをコピー(Googleカレンダー用)</button>
+      <button type="button" class="sync" id="feedOpen">iPhone/iPadのカレンダーに追加</button>
+      <button type="button" class="sync" id="feedReset">URLを作り直す</button>
+    </div>
+    <div class="fld" style="margin-top:14px;font-weight:600">リフォーム全物件のまとめ購読</div>
+    <p class="empty" style="text-align:left;padding:4px 0">工事の種類が「リフォーム」の物件だけを、1つのカレンダーにまとめます。新しいリフォーム物件も自動で入ります。</p>
+    <button type="button" class="sync" id="feedAllMake">まとめ購読URLを作る</button>
+    <div id="feedAllBox" hidden>
+      <label class="fld">リフォーム全物件の購読URL<input id="feedAllUrl" readonly></label>
+      <button type="button" class="sync" id="feedAllCopy">URLをコピー(Googleカレンダー用)</button>
+      <button type="button" class="sync" id="feedAllOpen">iPhone/iPadのカレンダーに追加</button>
+      <button type="button" class="sync" id="feedAllReset">URLを作り直す</button>
+    </div>
     <div class="fld" style="margin-top:14px;font-weight:600">図面(Dropbox)</div>
     <label class="fld">Dropboxの共有リンク(この物件のフォルダ。業者には、担当の工事がある物件だけ表示されます)<input id="iDrop" type="url" maxlength="400" placeholder="https://www.dropbox.com/scl/fo/..."></label>
     <div class="fld" style="margin-top:14px;font-weight:600">工事挨拶文</div>
@@ -357,12 +375,13 @@ function twoStep(btn,fn){
     const user=await claude.use("user");
     if(user){try{const w=await user.can("data.write");if(w===false)canWrite=false}catch(e){}}
     if(user){try{if(await user.isOwner()){const m=await claude.use("mcp");if(m){mcp=m;syncOn=true;gMsg("Googleカレンダーと連携中:あなたのカレンダーに登録されます");$("syncAll").hidden=false}}}catch(e){}}
-    tasksRef=db.collection("tasks");propsRef=db.collection("props");
-    propsRef.onSnapshot(s=>{props=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));render()},()=>{});
+    tasksRef=db.collection("tasks");propsRef=db.collection("props");settingsRef=db.collection("settings");
+    if(canWrite)settingsRef.onSnapshot(s=>{const d=s.docs.find(x=>x.id==="feeds");reformTok=d&&d.data().reformToken||"";feedRefresh()},()=>{});
+    propsRef.onSnapshot(s=>{props=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));pLoaded=true;render();feedSched()},()=>{});
     tasksRef.onSnapshot(s=>{
       tasks=s.docs.map(d=>({id:d.id,...d.data()}));
       $("status").textContent=canWrite?"共有中:変更は全員に反映されます":"閲覧のみ:編集権限がありません";
-      render();
+      tLoaded=true;render();feedSched();
     },()=>{$("status").textContent="共有データを読み込めませんでした"});
     render();
   }catch(e){$("status").textContent="この端末だけに保存されます(共有はされません)"}
@@ -400,6 +419,73 @@ function gErr(e){
   }
 }
 
+// ---- カレンダー購読(自動更新) ----
+const FEED_BASE="https://koutei-feed.nsk95.workers.dev";
+let settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
+const feedUrl=p=>p&&p.feedToken&&FEED_BASE?FEED_BASE.replace(/\/$/,"")+"/"+p.feedToken+".ics":"";
+function feedSched(){if(!canWrite||!propsRef||!pLoaded||!tLoaded)return;clearTimeout(feedT);feedT=setTimeout(feedPush,2500)}
+async function feedPush(){
+  let fdb;try{fdb=await claude.use("db")}catch(e){return}
+  if(!fdb)return;
+  if(reformTok){
+    const r=buildIcs(true,true,null,"reform"),key=r.text.replace(/DTSTAMP:\S+/g,"");
+    if(feedLast[reformTok]!==key){try{await fdb.collection("feeds").doc(reformTok).set({ics:r.text,pid:"reform",ts:Date.now()});feedLast[reformTok]=key}catch(e){}}
+  }
+  for(const p of props){
+    if(!p.feedToken||p.id===LEG)continue;
+    const r=buildIcs(false,true,p.id),key=r.text.replace(/DTSTAMP:\S+/g,"");
+    if(feedLast[p.feedToken]===key)continue;
+    try{await fdb.collection("feeds").doc(p.feedToken).set({ics:r.text,pid:p.id,ts:Date.now()});feedLast[p.feedToken]=key}catch(e){}
+  }
+}
+function feedRefresh(){
+  const p=curProp(),u=feedUrl(p),has=!!(p&&p.feedToken);
+  $("feedNote").textContent=!FEED_BASE?"準備中です(配信の設定がまだ終わっていません)":has?"このURLをカレンダーに登録すると、工程の変更が自動で反映されます。反映までに数時間かかることがあります。URLを知っている人は予定を見られるので、共有する相手に気をつけてください。":"この物件の工程を、iPhoneやGoogleのカレンダーに自動で反映させるURLを作ります。";
+  $("feedMake").hidden=!FEED_BASE||has;
+  $("feedUrlBox").hidden=!u;$("feedUrl").value=u;
+  const ru=FEED_BASE&&reformTok?FEED_BASE.replace(/\/$/,"")+"/"+reformTok+".ics":"";
+  $("feedAllMake").hidden=!FEED_BASE||!!reformTok;
+  $("feedAllBox").hidden=!ru;$("feedAllUrl").value=ru;
+}
+const newTok=()=>{const a=new Uint8Array(16);crypto.getRandomValues(a);return [...a].map(b=>b.toString(16).padStart(2,"0")).join("")};
+$("feedAllMake").onclick=async()=>{
+  if(!settingsRef)return;
+  try{const t=newTok();await settingsRef.doc("feeds").set({reformToken:t});reformTok=t;feedRefresh();feedSched();$("status").textContent="リフォーム全物件の購読URLを作りました。少し待つと使えるようになります"}
+  catch(e){$("status").textContent="作れませんでした。Firebaseのルールを更新しましたか?"}
+};
+$("feedAllCopy").onclick=async()=>{
+  const u=$("feedAllUrl").value;
+  try{await navigator.clipboard.writeText(u);$("status").textContent="URLをコピーしました"}
+  catch(e){$("feedAllUrl").select();$("status").textContent="URLを長押ししてコピーしてください"}
+};
+$("feedAllOpen").onclick=()=>{const u=$("feedAllUrl").value;if(u)location.href=u.replace(/^https:/,"webcal:")};
+$("feedAllReset").onclick=async()=>{
+  if(!reformTok||!settingsRef)return;
+  if(!confirm("URLを作り直します。今までのURLは使えなくなり、登録済みのカレンダーは更新されなくなります。よろしいですか?"))return;
+  try{(await claude.use("db")).collection("feeds").doc(reformTok).delete()}catch(e){}
+  delete feedLast[reformTok];
+  try{await settingsRef.doc("feeds").set({reformToken:""});reformTok="";feedRefresh()}catch(e){}
+  $("status").textContent="URLを無効にしました。もう一度作れます";
+};
+$("feedMake").onclick=()=>{
+  updInfo({feedToken:newTok()});
+  feedRefresh();feedSched();$("status").textContent="購読URLを作りました。少し待つと使えるようになります";
+};
+$("feedCopy").onclick=async()=>{
+  const u=$("feedUrl").value;
+  try{await navigator.clipboard.writeText(u);$("status").textContent="URLをコピーしました"}
+  catch(e){$("feedUrl").select();$("status").textContent="URLを長押ししてコピーしてください"}
+};
+$("feedOpen").onclick=()=>{const u=$("feedUrl").value;if(u)location.href=u.replace(/^https:/,"webcal:")};
+$("feedReset").onclick=async()=>{
+  const p=curProp();if(!p||!p.feedToken)return;
+  if(!confirm("URLを作り直します。今までのURLは使えなくなり、登録済みのカレンダーは更新されなくなります。よろしいですか?"))return;
+  try{(await claude.use("db")).collection("feeds").doc(p.feedToken).delete()}catch(e){}
+  delete feedLast[p.feedToken];
+  updInfo({feedToken:""});
+  feedRefresh();$("status").textContent="URLを無効にしました。もう一度作れます";
+};
+
 // ---- 保存 ----
 async function saveProp(p){
   const {id,...body}=p;
@@ -407,6 +493,7 @@ async function saveProp(p){
   else{const i=props.findIndex(x=>x.id===id);if(i>=0)props[i]=p;else props.push(p);sv("koutei-props",props);render()}
 }
 async function deleteProp(id){
+  {const q=props.find(x=>x.id===id);if(q&&q.feedToken&&propsRef){try{(await claude.use("db")).collection("feeds").doc(q.feedToken).delete()}catch(e){}}}
   props=props.filter(p=>p.id!==id);
   if(propsRef){try{await propsRef.doc(id).delete()}catch(e){$("status").textContent="削除できませんでした"}}
   else sv("koutei-props",props);
@@ -634,7 +721,7 @@ function openInfo(){
   $("iName").value=p.name||"";$("iAddr").value=p.addr||"";$("iMap").value=p.mapUrl||"";$("iHand").value=p.handover||"";$("iStart").value=p.start||"";$("iKind").value=p.kind||"";$("iZip").value=p.zip?p.zip.slice(0,3)+"-"+p.zip.slice(3):"";
   document.querySelectorAll("#pcolors input").forEach(r=>r.checked=r.value===pcol(p));
   $("iDrop").value=p.dropbox||"";$("iLtext").value=p.letterText||"";$("iLperiod").value=p.letterPeriod||"";$("iLdate").value=p.letterDate||"";$("iLseason").value=p.letterSeason||"";$("iMapZoom").value=String(p.mapZoom||17);$("iMapMark").checked=p.mapImgMark===true;$("mapPrev").hidden=true;mapStatRefresh();
-  $("infoPanel").hidden=false;renderTypeOrder();
+  $("infoPanel").hidden=false;renderTypeOrder();feedRefresh();
 }
 $("infoBtn").onclick=()=>{if($("infoPanel").hidden)openInfo();else $("infoPanel").hidden=true};
 $("infoClose").onclick=()=>{$("infoPanel").hidden=true};
@@ -1146,13 +1233,13 @@ function icsUtc(k,t){
   const dt=new Date(Date.UTC(y,m-1,d,h-9,mi,0));
   return dt.getUTCFullYear()+pad(dt.getUTCMonth()+1)+pad(dt.getUTCDate())+"T"+pad(dt.getUTCHours())+pad(dt.getUTCMinutes())+"00Z";
 }
-function buildIcs(all,inclMeet){
+function buildIcs(all,inclMeet,pid,kind){
   const dtn=new Date(),stamp=dtn.getUTCFullYear()+pad(dtn.getUTCMonth()+1)+pad(dtn.getUTCDate())+"T"+pad(dtn.getUTCHours())+pad(dtn.getUTCMinutes())+pad(dtn.getUTCSeconds())+"Z";
-  const cp=all?null:curProp(),L=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//4C koutei//JA","CALSCALE:GREGORIAN","X-WR-CALNAME:"+icsEsc(all?"工程(全物件)":"工程 "+((cp&&cp.name)||"")),"X-WR-TIMEZONE:Asia/Tokyo"];
+  const cp=all?null:(pid?props.find(q=>q.id===pid):curProp()),L=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//4C koutei//JA","CALSCALE:GREGORIAN","X-WR-CALNAME:"+icsEsc(all?(kind==="reform"?"工程(リフォーム全物件)":"工程(全物件)"):"工程 "+((cp&&cp.name)||"")),"X-WR-TIMEZONE:Asia/Tokyo"];
   let n=0;
   const ev=(uid,lines)=>{L.push("BEGIN:VEVENT","UID:"+uid,"DTSTAMP:"+stamp,...lines,"END:VEVENT");n++};
   const ymdc=k=>k.replace(/-/g,"");
-  (all?tasks:curTasks()).forEach(t=>{
+  (all?tasks:pid?tasks.filter(t=>t.propId===pid):curTasks()).filter(t=>!kind||((propOf(t)||{}).kind===kind)).forEach(t=>{
     const meet=t.kind==="meeting";
     if(meet&&!inclMeet)return;
     const p=propOf(t),pn=p?"【"+p.name+"】":"";
@@ -1164,7 +1251,7 @@ function buildIcs(all,inclMeet){
       ev(t.id+"-"+i+"@koutei",["SUMMARY:"+icsEsc(title),"DESCRIPTION:"+icsEsc(desc),...dt]);
     });
   });
-  (all?props:[cp].filter(Boolean)).forEach(p=>{
+  (all?props:[cp].filter(Boolean)).filter(q=>!kind||q.kind===kind).forEach(p=>{
     if(!p||p.id===LEG)return;
     if(p.start)ev("start-"+p.id+"@koutei",["SUMMARY:"+icsEsc("着工【"+p.name+"】"),"DTSTART;VALUE=DATE:"+ymdc(p.start),"DTEND;VALUE=DATE:"+ymdc(dayAfter(p.start))]);
     if(p.handover)ev("hand-"+p.id+"@koutei",["SUMMARY:"+icsEsc("引き渡し予定【"+p.name+"】"),"DTSTART;VALUE=DATE:"+ymdc(p.handover),"DTEND;VALUE=DATE:"+ymdc(dayAfter(p.handover))]);
