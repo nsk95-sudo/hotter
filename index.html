@@ -96,6 +96,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
 .offrow button:disabled{opacity:.3;cursor:default}
 .fld{display:grid;gap:2px;font-size:.8rem;color:var(--sub);margin-top:8px}
 .fld input{padding:9px 10px;font:inherit;font-size:1rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;width:100%}
+.fld textarea{padding:9px 10px;font:inherit;font-size:1rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;width:100%}
 .fld select{padding:9px 10px;font:inherit;font-size:1rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;width:100%}
 .addr{padding:0 6px 10px;font-size:.88rem;overflow-wrap:anywhere}
 .addr a{color:var(--accent);margin-left:8px;font-weight:600}
@@ -209,9 +210,18 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
     </div>
     <div class="legend" id="legend" hidden></div>
     <section class="panel" id="pdfPanel" hidden>
-      <h2>PDFの範囲</h2>
-      <div class="row2"><label class="fld">開始日<input id="pdFrom" type="date"></label><label class="fld">終了日<input id="pdTo" type="date"></label></div>
-      <button type="button" class="primary" id="pdfGo">この範囲でPDFを保存</button>
+      <h2>PDFの設定</h2>
+      <label class="fld">出力の種類<select id="pdKind"><option value="gantt">横棒の工程表(A4横)</option><option value="wall">壁掛けカレンダー(A3縦・1か月)</option></select></label>
+      <div id="pdGanttOpt">
+        <div class="row2"><label class="fld">開始日<input id="pdFrom" type="date"></label><label class="fld">終了日<input id="pdTo" type="date"></label></div>
+        <label class="fld">工事一覧<select id="pdList"><option value="type">工事種別の順に表示</option><option value="vendor">業者別に表示</option><option value="none">表示しない</option></select></label>
+      </div>
+      <div id="pdWallOpt" hidden>
+        <label class="fld">対象の月<input id="pdMonth" type="month"></label>
+        <label class="fld">対象<select id="pdScope"><option value="all">全物件</option><option value="cur">この物件だけ</option></select></label>
+      </div>
+      <label class="fld">特記事項(PDFの下に入ります。物件ごとに保存されます)<textarea id="pdNote" rows="3" maxlength="400"></textarea></label>
+      <button type="button" class="primary" id="pdfGo">PDFを保存</button>
       <button type="button" class="sync" id="pdfCancel">閉じる</button>
     </section>
     <div class="grid" id="grid"></div>
@@ -414,7 +424,7 @@ function render(){
   s.hidden=!l.length;
   $("propAdd").hidden=!canWrite;
   const real=canWrite&&cur&&cur!==LEG&&cur!==ALL;
-  $("offBtn").hidden=!real;$("infoBtn").hidden=!real;$("pdfBtn").hidden=!(dl&&cur!==ALL);
+  $("offBtn").hidden=!real;$("infoBtn").hidden=!real;$("pdfBtn").hidden=!dl;
   if(!$("offPanel").hidden)renderOff();
   $("propDel").hidden=!(canWrite&&cur&&cur!==LEG&&cur!==ALL&&!curTasks().length);
   $("body").hidden=!cur;
@@ -658,8 +668,21 @@ $("form").onsubmit=e=>{
 let dl=null;
 (async()=>{try{dl=await claude.use("downloads")}catch(e){dl=null}$("pdfBtn").hidden=!dl})();
 const FONT='"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif';
-function buildPdfCanvas(from,to){
-  const p=curProp(),days=[];
+function wrapLines(x,t,maxW,maxLines){
+  const out=[],chars=Array.from(t||"");let line="",k=0;
+  for(;k<chars.length;k++){
+    const ch=chars[k];
+    if(ch==="\n"){out.push(line);line=""}
+    else if(line&&x.measureText(line+ch).width>maxW){out.push(line);line=ch}
+    else line+=ch;
+    if(out.length===maxLines)break;
+  }
+  if(out.length<maxLines){if(line)out.push(line);return out}
+  if(line||k<chars.length-1)out[maxLines-1]=out[maxLines-1].replace(/.$/,"…");
+  return out;
+}
+function buildPdfCanvas(from,to,o){
+  const opt=o||{list:"type",note:""},p=curProp(),days=[];
   for(let k=from;k<=to;k=dayAfter(k))days.push(k);
   const n=days.length,T0=Date.parse(from),di=s=>Math.round((Date.parse(s)-T0)/864e5);
   const LW=170,PAD=24,dw=Math.max(22,Math.min(46,Math.floor((1684-LW-PAD*2)/n)));
@@ -667,7 +690,7 @@ function buildPdfCanvas(from,to){
   const mc=document.createElement("canvas").getContext("2d");mc.font="18px "+FONT;
   const byStart=(a,b)=>a.start<b.start?-1:a.start>b.start?1:0;
   const rows=typesOf().map(ty=>{
-    const items=curTasks().filter(t=>(t.type||"その他")===ty&&t.start<=to&&t.end>=from).sort(byStart);
+    const items=curTasks().filter(t=>(t.type||"その他")===ty&&t.kind!=="meeting"&&t.start<=to&&t.end>=from).sort(byStart);
     const lanes=[],pl=[];
     items.forEach(t=>{
       const sg=segs(t,propOf(t)).map(a=>[a[0]<from?from:a[0],a[1]>to?to:a[1]]).filter(a=>a[0]<=a[1]);
@@ -679,18 +702,28 @@ function buildPdfCanvas(from,to){
     return {ty,pl,h:Math.max(lanes.length,1)*54+10};
   });
   const list=curTasks().filter(t=>t.kind!=="meeting"&&t.start<=to&&t.end>=from).sort(byStart);
+  const LL=[];
+  if(opt.list==="type")list.forEach(t=>LL.push({t}));
+  else if(opt.list==="vendor"){
+    const g={};list.forEach(t=>{const k=t.who||"(担当未定)";(g[k]=g[k]||[]).push(t)});
+    Object.keys(g).sort().forEach(k=>{LL.push({h:k});g[k].forEach(t=>LL.push({t,v:1}))});
+  }
+  const listH=LL.length?60+LL.reduce((a,l)=>a+(l.h?38:30),0):0;
+  mc.font="19px "+FONT;
+  const nl=opt.note?wrapLines(mc,opt.note,CW-PAD*2,14):[],noteH=nl.length?60+nl.length*30:0;
   const top=122,cs=top+58,chartH=cs+rows.reduce((a,r)=>a+r.h,0);
-  const H=Math.max(Math.round(CW*0.707),chartH+(list.length?100+list.length*30:50));
+  const H=Math.max(Math.round(CW*0.707),chartH+listH+noteH+60);
   const c=document.createElement("canvas");c.width=CW;c.height=H;
   const x=c.getContext("2d");x.textBaseline="top";
   x.fillStyle="#fff";x.fillRect(0,0,CW,H);
   x.fillStyle="#111";x.font="bold 34px "+FONT;x.fillText((p?p.name:"")+"  工程表",PAD,22);
   x.fillStyle="#555";x.font="22px "+FONT;x.fillText(from.replace(/-/g,"/")+" 〜 "+to.replace(/-/g,"/"),PAD,66);
-  const info=[p&&p.addr?"住所:"+p.addr:"",p&&p.handover?"引き渡し日:"+p.handover.replace(/-/g,"/"):""].filter(Boolean).join("     ");
+  const info=[p&&p.addr?"住所:"+p.addr:"",p&&p.handover?"引き渡し予定:"+p.handover.replace(/-/g,"/"):""].filter(Boolean).join("     ");
   if(info){x.fillStyle="#333";x.font="20px "+FONT;x.fillText(info,PAD,94)}
   days.forEach((k,idx)=>{
     const wd=new Date(+k.slice(0,4),+k.slice(5,7)-1,+k.slice(8)).getDay(),dx=X0+idx*dw,hol=holName(k);
     if(isOff(k,p)){x.fillStyle="#ececec";x.fillRect(dx,top+24,dw,chartH-top-24)}
+    if(p&&p.handover===k){x.fillStyle="rgba(255,150,40,0.30)";x.fillRect(dx,top+24,dw,chartH-top-24);x.fillStyle="#c05a00";x.font="bold 16px "+FONT;x.textAlign="center";x.fillText("引き渡し予定",Math.min(Math.max(dx+dw/2,PAD+60),CW-60),chartH+4);x.textAlign="left"}
     if(idx===0||k.slice(8)==="01"){x.fillStyle="#333";x.font="bold 18px "+FONT;x.textAlign="left";x.fillText(+k.slice(0,4)+"年"+(+k.slice(5,7))+"月",dx+2,top+2)}
     x.fillStyle=(wd===0||hol)?"#c0392b":wd===6?"#2b6cb0":"#333";x.font="16px "+FONT;x.textAlign="center";
     x.fillText(String(+k.slice(8)),dx+dw/2,top+32);
@@ -711,22 +744,84 @@ function buildPdfCanvas(from,to){
     yy+=r.h;
   });
   x.strokeStyle="#888";x.beginPath();x.moveTo(PAD,yy+.5);x.lineTo(XE,yy+.5);x.stroke();
-  if(p&&p.handover&&p.handover>=from&&p.handover<=to){
-    const hx=X0+di(p.handover)*dw+dw/2;
-    x.fillStyle="rgba(255,150,40,0.30)";x.fillRect(hx-dw/2,top+24,dw,chartH-top-24);
-    x.fillStyle="#c05a00";x.font="bold 18px "+FONT;x.textAlign="center";x.fillText("引き渡し予定",Math.min(Math.max(hx,PAD+40),CW-60),chartH+4);x.textAlign="left";
-  }
-  if(list.length){
-    let ly=chartH+40;
-    x.fillStyle="#111";x.font="bold 22px "+FONT;x.fillText("工事一覧",PAD,ly);ly+=40;
-    x.font="19px "+FONT;
-    list.forEach(t=>{
-      x.fillStyle=vcol(t.who);x.fillRect(PAD,ly+4,10,18);
-      x.fillStyle="#222";
-      x.fillText((t.type||"その他")+" / "+t.name+(t.who?" / "+t.who:"")+" / "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":""),PAD+22,ly);
+  let ly=chartH+40;
+  if(LL.length){
+    x.fillStyle="#111";x.font="bold 22px "+FONT;x.fillText("工事一覧"+(opt.list==="vendor"?"(業者別)":""),PAD,ly);ly+=40;
+    LL.forEach(l=>{
+      if(l.h){x.fillStyle=vcol(l.h);x.fillRect(PAD,ly+6,14,20);x.fillStyle="#111";x.font="bold 21px "+FONT;x.fillText(l.h,PAD+24,ly+2);ly+=38;return}
+      const t=l.t;
+      x.fillStyle=vcol(t.who);x.fillRect(PAD+(l.v?24:0),ly+4,10,18);
+      x.fillStyle="#222";x.font="19px "+FONT;
+      x.fillText((t.type||"その他")+" / "+t.name+(l.v?"":(t.who?" / "+t.who:""))+" / "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":""),PAD+(l.v?46:22),ly);
       ly+=30;
     });
+    ly+=20;
   }
+  if(nl.length){
+    x.fillStyle="#111";x.font="bold 22px "+FONT;x.fillText("特記事項",PAD,ly+10);ly+=50;
+    x.fillStyle="#222";x.font="19px "+FONT;
+    nl.forEach(t=>{x.fillText(t,PAD,ly);ly+=30});
+  }
+  return c;
+}
+function buildWallCanvas(y,m,all,note){
+  const CW=2000,H=2828,MX=60,GY=230;
+  const c=document.createElement("canvas");c.width=CW;c.height=H;
+  const x=c.getContext("2d");x.textBaseline="top";
+  x.fillStyle="#fff";x.fillRect(0,0,CW,H);
+  const p=all?null:curProp(),pr=all?props:(p?[p]:[]);
+  const list=(all?tasks:curTasks()).slice().sort((a,b)=>a.start<b.start?-1:a.start>b.start?1:0);
+  x.fillStyle="#111";x.font="bold 110px "+FONT;x.fillText(y+"年"+m+"月",MX,50);
+  x.font="34px "+FONT;x.fillStyle="#444";x.textAlign="right";
+  x.fillText(all?"全物件":((p&&p.name)||"")+(p&&p.addr?"  "+p.addr:""),CW-MX,110,1100);x.textAlign="left";
+  x.font="26px "+FONT;
+  const nl=note?wrapLines(x,note,CW-MX*2,4):[];
+  const footH=(all&&pr.length?56:0)+(nl.length?nl.length*34+20:0)+30;
+  const first=new Date(y,m-1,1),start=new Date(first);start.setDate(1-first.getDay());
+  const weeks=Math.ceil((first.getDay()+new Date(y,m,0).getDate())/7);
+  const cw=(CW-MX*2)/7,gy0=GY+56,rh=(H-footH-gy0)/weeks;
+  WD.forEach((w,i)=>{
+    x.fillStyle=i===0?"#c0392b":i===6?"#2b6cb0":"#333";x.font="bold 32px "+FONT;x.textAlign="center";
+    x.fillText(w,MX+i*cw+cw/2,GY+10);
+  });
+  x.textAlign="left";
+  for(let i=0;i<weeks*7;i++){
+    const d=new Date(start);d.setDate(start.getDate()+i);
+    const key=ymd(d),inM=d.getMonth()===m-1,wd=d.getDay(),hol=holName(key);
+    const cx=MX+(i%7)*cw,cy=gy0+Math.floor(i/7)*rh;
+    const hands=pr.filter(q=>q.handover===key),starts=pr.filter(q=>q.start===key);
+    x.fillStyle=hands.length?"#ffe6c7":!inM?"#f6f6f6":isOff(key,p)?"#ececec":"#fff";
+    x.fillRect(cx,cy,cw,rh);
+    x.strokeStyle="#777";x.lineWidth=2;x.strokeRect(cx,cy,cw,rh);
+    x.fillStyle=!inM?"#bbb":(wd===0||hol)?"#c0392b":wd===6?"#2b6cb0":"#222";
+    x.font="bold 40px "+FONT;x.fillText(String(d.getDate()),cx+10,cy+6);
+    if(hol){x.fillStyle=inM?"#c0392b":"#bbb";x.font="20px "+FONT;x.fillText(hol,cx+62,cy+20,cw-70)}
+    const ev=[];
+    hands.forEach(q=>ev.push({t:"引き渡し予定"+(all?":"+q.name:""),col:"#d9780a",b:1}));
+    starts.forEach(q=>ev.push({t:"着工"+(all?":"+q.name:""),col:"#2b6cb0",b:1}));
+    list.filter(t=>onDay(t,key)).forEach(t=>{
+      const q=propOf(t);
+      ev.push({t:(all&&q?q.name+" ":"")+(t.kind==="meeting"?"◇":"")+t.name,col:all&&q?pcol(q):(t.kind==="meeting"?"#555":vcol(t.who))});
+    });
+    let ty=cy+56,shown=0;
+    for(const e of ev){
+      x.font=(e.b?"bold ":"")+"22px "+FONT;
+      const ls=wrapLines(x,e.t,cw-34,2),h=ls.length*26+8;
+      if(ty+h+(shown<ev.length-1?30:0)>cy+rh-4)break;
+      x.fillStyle=e.col;x.fillRect(cx+8,ty+2,8,h-8);
+      x.fillStyle="#111";
+      ls.forEach((t,j)=>x.fillText(t,cx+22,ty+j*26));
+      ty+=h;shown++;
+    }
+    if(shown<ev.length){x.fillStyle="#c0392b";x.font="bold 22px "+FONT;x.fillText("ほか"+(ev.length-shown)+"件",cx+10,cy+rh-30)}
+  }
+  let fy=H-footH+14;
+  if(all&&pr.length){
+    x.font="24px "+FONT;let lx=MX;
+    pr.forEach(q=>{x.fillStyle=pcol(q);x.fillRect(lx,fy+4,22,22);x.fillStyle="#222";x.fillText(q.name,lx+30,fy+2);lx+=x.measureText(q.name).width+70});
+    fy+=56;
+  }
+  if(nl.length){x.fillStyle="#222";x.font="26px "+FONT;nl.forEach(t=>{x.fillText(t,MX,fy);fy+=34})}
   return c;
 }
 function makePdf(jpeg,w,h){
@@ -747,26 +842,48 @@ function makePdf(jpeg,w,h){
   push(t+"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n"+xr+"\n%%EOF\n");
   return new Blob(parts,{type:"application/pdf"});
 }
+function pdKindChange(){
+  if(cur===ALL){$("pdKind").value="wall";$("pdScope").value="all"}
+  $("pdKind").disabled=cur===ALL;$("pdScope").disabled=cur===ALL;
+  const w=$("pdKind").value==="wall";$("pdGanttOpt").hidden=w;$("pdWallOpt").hidden=!w;
+}
 function openPdf(){
-  const y=view.getFullYear(),m=view.getMonth();
-  const p0=curProp();
-  $("pdFrom").value=p0&&p0.start?p0.start:ymd(new Date(y,m,1));$("pdTo").value=p0&&p0.handover?p0.handover:ymd(new Date(y,m+1,0));
+  const y=view.getFullYear(),m=view.getMonth(),p0=curProp();
+  $("pdFrom").value=p0&&p0.start?p0.start:ymd(new Date(y,m,1));
+  $("pdTo").value=p0&&p0.handover?p0.handover:ymd(new Date(y,m+1,0));
+  $("pdMonth").value=y+"-"+pad(m+1);
+  $("pdNote").value=(p0&&p0.pdfNote)||"";
   $("pdfPanel").hidden=!$("pdfPanel").hidden;
+  pdKindChange();
 }
 async function exportPdf(){
-  if(!dl||!cur||cur===ALL)return;
-  let f=$("pdFrom").value,u=$("pdTo").value;
-  if(!f||!u){$("status").textContent="開始日と終了日を入れてください";return}
-  if(u<f)[f,u]=[u,f];
-  if((Date.parse(u)-Date.parse(f))/864e5>200){$("status").textContent="範囲は最大6か月ほどまでにしてください";return}
+  if(!dl)return;
+  const wall=$("pdKind").value==="wall"||cur===ALL,note=$("pdNote").value.trim();
   try{
-    const c=buildPdfCanvas(f,u),b64=c.toDataURL("image/jpeg",0.92).split(",")[1],bin=atob(b64),u8=new Uint8Array(bin.length);
+    let c,nm;
+    if(wall){
+      const [yy,mm]=($("pdMonth").value||"").split("-").map(Number);
+      if(!yy||!mm){$("status").textContent="対象の月を選んでください";return}
+      const all=cur===ALL||$("pdScope").value==="all";
+      c=buildWallCanvas(yy,mm,all,note);
+      nm=(all?"全物件":((curProp()||{}).name||"物件"))+"_"+yy+"-"+pad(mm)+"_A3";
+    }else{
+      if(!cur||cur===ALL)return;
+      let f=$("pdFrom").value,u=$("pdTo").value;
+      if(!f||!u){$("status").textContent="開始日と終了日を入れてください";return}
+      if(u<f)[f,u]=[u,f];
+      if((Date.parse(u)-Date.parse(f))/864e5>200){$("status").textContent="範囲は最大6か月ほどまでにしてください";return}
+      c=buildPdfCanvas(f,u,{list:$("pdList").value,note});
+      nm=((curProp()||{}).name||"工程表")+"_"+f+"_"+u;
+    }
+    const b64=c.toDataURL("image/jpeg",0.92).split(",")[1],bin=atob(b64),u8=new Uint8Array(bin.length);
     for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
-    const p=curProp(),nm=((p?p.name:"工程表")).replace(/[\\\/:*?"<>|]/g,"_");
-    await dl.save({filename:nm+"_"+f+"_"+u+".pdf",data:makePdf(u8,c.width,c.height)});
+    await dl.save({filename:nm.replace(/[\\\/:*?"<>|]/g,"_")+".pdf",data:makePdf(u8,c.width,c.height)});
     $("status").textContent="PDFを保存しました";$("pdfPanel").hidden=true;
   }catch(e){if(!e||e.code!=="declined")$("status").textContent="PDFを保存できませんでした"}
 }
+$("pdKind").onchange=pdKindChange;
+$("pdNote").onchange=()=>{const p=curProp();if(p&&p.id!==LEG&&cur!==ALL)updInfo({pdfNote:$("pdNote").value})};
 $("pdfBtn").onclick=openPdf;$("pdfGo").onclick=exportPdf;$("pdfCancel").onclick=()=>{$("pdfPanel").hidden=true};
 
 // ---- 休日設定 ----
