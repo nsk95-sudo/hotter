@@ -225,10 +225,11 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
     <div class="legend" id="legend" hidden></div>
     <section class="panel" id="pdfPanel" hidden>
       <h2>書き出し</h2>
-      <label class="fld">出力の種類<select id="pdKind"><option value="gantt">横棒の工程表(A4横・PDF)</option><option value="wall">壁掛けカレンダー(A3縦・PDF)</option><option value="letter">工事挨拶文(A4縦・2枚・PDF)</option><option value="ics">カレンダー用ファイル(.ics)</option></select></label>
+      <label class="fld">出力の種類<select id="pdKind"><option value="gantt">横棒の工程表(A4/A3横・PDF)</option><option value="wall">壁掛けカレンダー(A3縦・PDF)</option><option value="letter">工事挨拶文(A4縦・2枚・PDF)</option><option value="ics">カレンダー用ファイル(.ics)</option></select></label>
       <div id="pdGanttOpt">
         <div class="row2"><label class="fld">開始日<input id="pdFrom" type="date"></label><label class="fld">終了日<input id="pdTo" type="date"></label></div>
         <label class="fld">工事一覧<select id="pdList"><option value="type">工事種別の順に表示</option><option value="vendor">業者別に表示</option><option value="none">表示しない</option></select></label>
+        <div class="row2"><label class="fld">用紙<select id="pdPaper"><option value="a4">A4横</option><option value="a3">A3横</option></select></label><label class="fld">長い期間<select id="pdSplit"><option value="split">ページを分ける</option><option value="one">1ページに収める</option></select></label></div>
       </div>
       <div id="pdWallOpt" hidden>
         <label class="fld">対象の月<input id="pdMonth" type="month"></label>
@@ -845,23 +846,40 @@ function buildWallCanvas(y,m,all,note){
   if(nl.length){x.fillStyle="#222";x.font="26px "+FONT;nl.forEach(t=>{x.fillText(t,MX,fy);fy+=34})}
   return c;
 }
-function makePdf(jpeg,w,h,pw0){
-  const pw=pw0||842,ph=Math.round(pw*h/w*100)/100;
+function makePdfMulti(pages,pw0){
+  const pw=pw0||842,N=pages.length;
   const te=new TextEncoder(),parts=[],offs=[];let len=0;
   const push=b=>{const u=typeof b==="string"?te.encode(b):b;parts.push(u);len+=u.length};
   const obj=(k,body)=>{offs[k]=len;push(k+" 0 obj\n");body.forEach(b=>push(b));push("\nendobj\n")};
   push("%PDF-1.4\n");
   obj(1,["<< /Type /Catalog /Pages 2 0 R >>"]);
-  obj(2,["<< /Type /Pages /Kids [3 0 R] /Count 1 >>"]);
-  obj(3,["<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "+pw+" "+ph+"] /Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >>"]);
-  const cs="q "+pw+" 0 0 "+ph+" 0 0 cm /Im0 Do Q";
-  obj(4,["<< /Length "+cs.length+" >>\nstream\n"+cs+"\nendstream"]);
-  obj(5,["<< /Type /XObject /Subtype /Image /Width "+w+" /Height "+h+" /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length "+jpeg.length+" >>\nstream\n",jpeg,"\nendstream"]);
-  const xr=len;
-  let t="xref\n0 6\n0000000000 65535 f \n";
-  for(let k=1;k<=5;k++)t+=String(offs[k]).padStart(10,"0")+" 00000 n \n";
-  push(t+"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n"+xr+"\n%%EOF\n");
+  obj(2,["<< /Type /Pages /Kids ["+pages.map((_,i)=>(3+3*i)+" 0 R").join(" ")+"] /Count "+N+" >>"]);
+  pages.forEach((g,i)=>{
+    const ph=Math.round(pw*g.h/g.w*100)/100,o=3+3*i;
+    obj(o,["<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "+pw+" "+ph+"] /Contents "+(o+1)+" 0 R /Resources << /XObject << /Im0 "+(o+2)+" 0 R >> >> >>"]);
+    const cs="q "+pw+" 0 0 "+ph+" 0 0 cm /Im0 Do Q";
+    obj(o+1,["<< /Length "+cs.length+" >>\nstream\n"+cs+"\nendstream"]);
+    obj(o+2,["<< /Type /XObject /Subtype /Image /Width "+g.w+" /Height "+g.h+" /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length "+g.jpeg.length+" >>\nstream\n",g.jpeg,"\nendstream"]);
+  });
+  const xr=len,tot=3*N+3;
+  let t="xref\n0 "+tot+"\n0000000000 65535 f \n";
+  for(let k=1;k<tot;k++)t+=String(offs[k]).padStart(10,"0")+" 00000 n \n";
+  push(t+"trailer\n<< /Size "+tot+" /Root 1 0 R >>\nstartxref\n"+xr+"\n%%EOF\n");
   return new Blob(parts,{type:"application/pdf"});
+}
+function makePdf(jpeg,w,h,pw0){return makePdfMulti([{jpeg,w,h}],pw0)}
+function jpegBytes(c){
+  const b64=c.toDataURL("image/jpeg",0.92).split(",")[1],bin=atob(b64),u8=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
+  return u8;
+}
+function fitPage(src,W,H,wmm,mm){
+  const m=Math.round(mm/wmm*W),c=document.createElement("canvas");c.width=W;c.height=H;
+  const x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,W,H);
+  const k=Math.min((W-2*m)/src.width,(H-2*m)/src.height),w=src.width*k,h=src.height*k;
+  x.imageSmoothingEnabled=true;x.imageSmoothingQuality="high";
+  x.drawImage(src,(W-w)/2,(H-h)/2,w,h);
+  return c;
 }
 function pdKindChange(){
   const k=$("pdKind");
@@ -911,13 +929,24 @@ async function exportPdf(){
       let f=$("pdFrom").value,u=$("pdTo").value;
       if(!f||!u){$("status").textContent="開始日と終了日を入れてください";return}
       if(u<f)[f,u]=[u,f];
-      if((Date.parse(u)-Date.parse(f))/864e5>200){$("status").textContent="範囲は最大6か月ほどまでにしてください";return}
-      c=buildPdfCanvas(f,u,{list:$("pdList").value,note});
-      nm=((curProp()||{}).name||"工程表")+"_"+f+"_"+u;
+      const nd=Math.round((Date.parse(u)-Date.parse(f))/864e5)+1,a3=$("pdPaper").value==="a3",split=$("pdSplit").value==="split";
+      if(nd>(split?400:200)){$("status").textContent=split?"範囲は最大13か月ほどまでにしてください":"1ページに収める場合は、範囲を6か月ほどまでにしてください";return}
+      const per=a3?60:42,np=split?Math.ceil(nd/per):1,sz=Math.ceil(nd/np),W=a3?2480:1754,H=a3?1754:1240,wmm=a3?420:297,opt={list:$("pdList").value,note},pgs=[];
+      let s0=f;
+      for(let i=0;i<np;i++){
+        let e0=s0;for(let k=1;k<sz&&e0<u;k++)e0=dayAfter(e0);
+        if(i===np-1)e0=u;
+        const pc=fitPage(buildPdfCanvas(s0,e0,opt),W,H,wmm,10);
+        pgs.push({jpeg:jpegBytes(pc),w:W,h:H});
+        s0=dayAfter(e0);
+      }
+      nm=((curProp()||{}).name||"工程表")+"_"+f+"_"+u+"_"+(a3?"A3":"A4");
+      await dl.save({filename:safe(nm)+".pdf",data:makePdfMulti(pgs,a3?1190:842)});
+      $("status").textContent="PDFを保存しました"+(np>1?"("+np+"ページ)":"");$("pdfPanel").hidden=true;return;
     }
-    const b64=c.toDataURL("image/jpeg",0.92).split(",")[1],bin=atob(b64),u8=new Uint8Array(bin.length);
-    for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
-    await dl.save({filename:safe(nm)+".pdf",data:makePdf(u8,c.width,c.height,pw)});
+    if(kind==="letter")c=fitPage(c,1240,1754,210,8);
+    else if(kind==="wall")c=fitPage(c,2000,2828,297,6);
+    await dl.save({filename:safe(nm)+".pdf",data:makePdf(jpegBytes(c),c.width,c.height,pw)});
     $("status").textContent="PDFを保存しました"+warn;$("pdfPanel").hidden=true;
   }catch(e){if(!e||e.code!=="declined")$("status").textContent="書き出せませんでした"}
 }
