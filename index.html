@@ -151,7 +151,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
 </div>
 <div id="topbar" hidden>
   <span id="who"></span>
-  <span class="tb"><select id="pvSel" hidden aria-label="業者の見え方で確認" style="font:inherit;font-size:.85rem;max-width:11em;padding:4px 6px;border-radius:8px"></select><button type="button" id="btnUsers" hidden>ユーザー管理</button><button type="button" id="btnOut">ログアウト</button></span>
+  <span class="tb"><label id="mineWrap" hidden style="display:flex;align-items:center;gap:4px;font-size:.8rem"><input type="checkbox" id="mineChk" style="width:auto"> 自分の担当だけ</label><select id="pvSel" hidden aria-label="業者の見え方で確認" style="font:inherit;font-size:.85rem;max-width:11em;padding:4px 6px;border-radius:8px"></select><button type="button" id="btnUsers" hidden>ユーザー管理</button><button type="button" id="btnOut">ログアウト</button></span>
 </div>
 <section id="adminPanel" hidden>
   <h2>ユーザー管理</h2>
@@ -442,21 +442,28 @@ function applyData(){
     if(previewAs&&!names.includes(previewAs))previewAs="";
     sel.value=previewAs;sel.hidden=!names.length;
   }
+  const mineName=previewAs||(vendorMode?vendorNm:"");
+  $("mineWrap").hidden=!mineName;$("mineChk").checked=onlyMine;
   if(previewAs){
     const m={};
-    tasks=rawTasks.filter(t=>t.who===previewAs);
+    const pids=new Set(rawTasks.filter(t=>t.who===previewAs&&t.kind!=="meeting").map(t=>t.propId||""));
+    tasks=rawTasks.filter(t=>t.kind!=="meeting"&&pids.has(t.propId||""));
     tasks.forEach(t=>{if(t.propId&&!m[t.propId])m[t.propId]={id:t.propId,name:t.propName||"物件",addr:t.propAddr||"",mapUrl:t.propMap||"",dropbox:t.propDrop||"",types:[],ts:0}});
+    if(onlyMine)tasks=tasks.filter(t=>t.who===previewAs);
     props=Object.values(m);canWrite=false;
     $("status").textContent="確認中:業者「"+previewAs+"」にはこのように見えます(閲覧のみ)";
   }else{
     tasks=rawTasks;props=rawProps;canWrite=realWrite;
+    if(vendorMode&&onlyMine)tasks=rawTasks.filter(t=>t.who===vendorNm);
   }
   render();
 }
+try{onlyMine=localStorage.getItem("koutei-mine")==="1"}catch(e){}
+$("mineChk").onchange=()=>{onlyMine=$("mineChk").checked;try{localStorage.setItem("koutei-mine",onlyMine?"1":"0")}catch(e){}applyData()};
 $("pvSel").onchange=()=>{previewAs=$("pvSel").value;if(!previewAs)$("status").textContent="共有中:変更は全員に反映されます";applyData()};
 // ---- カレンダー購読(自動更新) ----
 const FEED_BASE="https://koutei-feed.nsk95.workers.dev";
-let vendorMode=false,vendorNm="",notifyTok="",rawProps=[],rawTasks=[],previewAs="",realWrite=true,settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
+let onlyMine=false,vendorMode=false,vendorNm="",notifyTok="",rawProps=[],rawTasks=[],previewAs="",realWrite=true,settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
 const feedUrl=p=>p&&p.feedToken&&FEED_BASE?FEED_BASE.replace(/\/$/,"")+"/"+p.feedToken+".ics":"";
 function feedSched(){if(!canWrite||!propsRef||!pLoaded||!tLoaded)return;clearTimeout(feedT);feedT=setTimeout(feedPush,2500)}
 async function feedPush(){
@@ -468,6 +475,12 @@ async function feedPush(){
     if(feedLast[reformTok]!==key){try{await fdb.collection("feeds").doc(reformTok).set({ics:r.text,pid:"reform",ts:Date.now()});feedLast[reformTok]=key}catch(e){}}
   }
   if(tasksRef){
+    const vm={};
+    tasks.forEach(t=>{if(t.kind!=="meeting"&&t.who){const k=t.propId||"";(vm[k]=vm[k]||new Set()).add(t.who)}});
+    for(const t of tasks){
+      const want=t.kind==="meeting"?[]:[...(vm[t.propId||""]||[])].sort();
+      if(JSON.stringify(want)!==JSON.stringify(t.viewers||[])){try{await tasksRef.doc(t.id).update({viewers:want})}catch(e){}}
+    }
     for(const t of tasks){
       if(t.kind==="meeting"||!t.skipOff||t.flex)continue;
       const d=[];segs(t,propOf(t)).forEach(([a,b])=>{for(let k=a;k<=b;k=dayAfter(k))d.push(k)});
@@ -579,6 +592,7 @@ async function saveTask(t,prev){
   }
   t.gEventId=gid;if(gid)t.gv=2;
   const {id,...body}=t;
+  if(prev&&prev.viewers)body.viewers=prev.viewers;
   {const pp=propOf(t);body.propName=pp?pp.name:"";body.propAddr=pp&&pp.addr?pp.addr:"";body.propMap=pp&&pp.mapUrl?pp.mapUrl:"";body.propDrop=pp&&pp.dropbox?pp.dropbox:""}
   if(tasksRef){try{await tasksRef.doc(id).set(body)}catch(e){$("status").textContent="保存できませんでした。編集権限を確認してください"}}
   else{const i=tasks.findIndex(x=>x.id===id);if(i>=0)tasks[i]=t;else tasks.push(t);sv("koutei-local",tasks);render()}
@@ -711,7 +725,7 @@ function renderDay(){
     meta.textContent=t.flex?((t.who?t.who+" / ":"")+"期間 "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+" のどこか"+(t.need?"(作業"+t.need+"日)":"")):(t.who?t.who+" / ":"")+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":"");
     if(t.confirmedBy)meta.textContent+="  ✔業者が確定:"+t.confirmedBy;
     body.append(nm,meta);
-    if(t.flex&&(vendorMode||previewAs)){
+    if(t.flex&&((vendorMode&&t.who===vendorNm)||(previewAs&&t.who===previewAs))){
       const bx=document.createElement("div");bx.style.cssText="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;margin-top:8px";
       const mk=(lb,v)=>{const l=document.createElement("label");l.style.cssText="font-size:.78rem;display:grid;gap:2px";l.append(document.createTextNode(lb));const i=document.createElement("input");i.type="date";i.min=t.start;i.max=t.end;i.value=v;i.style.cssText="font:inherit;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)";l.appendChild(i);bx.appendChild(l);return i};
       const a=mk("入れる日(開始)",t.start),z=mk("終了日",endFor(t,t.start));
@@ -1476,7 +1490,7 @@ render();
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendEmailVerification,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,collection,doc,getDoc,setDoc,updateDoc,deleteDoc,onSnapshot,query,where} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,collection,doc,getDoc,setDoc,updateDoc,deleteDoc,onSnapshot,query,where,or} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const cfg={
   apiKey:"AIzaSyAspPVU8LcSc2KSpJCyOogdOEsoHyll_IQ",
   authDomain:"koutei-2a3d4.firebaseapp.com",
@@ -1548,7 +1562,7 @@ onAuthStateChanged(auth,u=>{if(!started)gate(u)});
 function startApp(u,role,vendorName){
   if(started)return;started=true;
   const staff=role==="admin"||role==="member";
-  const tq=()=>role==="vendor"?query(collection(fs,"tasks"),where("who","==",vendorName)):collection(fs,"tasks");
+  const tq=()=>role==="vendor"?query(collection(fs,"tasks"),or(where("who","==",vendorName),where("viewers","array-contains",vendorName))):collection(fs,"tasks");
   const wrap=s=>({docs:s.docs.map(d=>({id:d.id,data:()=>d.data()}))});
   const dbShim={collection:name=>({
     onSnapshot:(next,err)=>{
