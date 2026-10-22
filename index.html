@@ -283,6 +283,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
         <label>何工事か(工事名)<input id="fName" required maxlength="40" placeholder="例:土台敷き"></label>
         <label>担当(業者)<select id="fWhoSel"></select></label>
         <input id="fWhoNew" maxlength="40" placeholder="新しい業者名 例:山田組" aria-label="新しい業者名" hidden>
+        <div id="fAttBox" hidden><div class="fld" style="font-weight:600;margin:6px 0 4px">同席する社内メンバー(LINEで通知します)</div><div id="fAttList" style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:6px"></div><div class="row2"><input id="fAttNew" maxlength="20" placeholder="新しい名前 例:山田" aria-label="新しい名前"><button type="button" id="fAttAdd" class="sync" style="margin:0">名前を追加</button></div></div>
         <div class="row2">
           <label>開始日<input id="fStart" type="date" required></label>
           <label>終了日<input id="fEnd" type="date" required></label>
@@ -723,6 +724,7 @@ function renderDay(){
     const nm=document.createElement("div");nm.className="name";nm.textContent=(t.flex?"【日程未定】":"")+(cur===ALL&&propOf(t)?"【"+propOf(t).name+"】":"")+(t.type||"その他")+":"+t.name;
     const meta=document.createElement("div");meta.className="meta";
     meta.textContent=t.flex?((t.who?t.who+" / ":"")+"期間 "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+" のどこか"+(t.need?"(作業"+t.need+"日)":"")):(t.who?t.who+" / ":"")+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":"");
+    if(t.kind==="meeting"&&t.attendees&&t.attendees.length)meta.textContent+="  同席:"+t.attendees.join("、");
     if(t.confirmedBy)meta.textContent+="  ✔業者が確定:"+t.confirmedBy;
     body.append(nm,meta);
     if(t.flex&&((vendorMode&&t.who===vendorNm)||(previewAs&&t.who===previewAs))){
@@ -763,10 +765,18 @@ function openForm(t){
   fillTypes(t?(t.type||"その他"):"");
   $("fName").value=t?t.name:"";fillWho(t?t.who||"":"");
   $("fStart").value=t?t.start:sel;$("fEnd").value=t?t.end:sel;$("fNote").value=t?t.note||"":"";
-  const al2=!t||t.allDay!==false;$("fAll").checked=al2;$("fTimes").hidden=al2;$("fT1").value=t&&t.t1?t.t1:"08:00";$("fT2").value=t&&t.t2?t.t2:"17:00";$("fSkip").checked=!!(t&&t.skipOff);$("fKind").value=t&&t.kind==="meeting"?"meeting":"work";setKind();$("fFlex").checked=!!(t&&t.flex);$("fNeed").value=t&&t.need||"";setFlex();
+  const al2=!t||t.allDay!==false;$("fAll").checked=al2;$("fTimes").hidden=al2;$("fT1").value=t&&t.t1?t.t1:"08:00";$("fT2").value=t&&t.t2?t.t2:"17:00";$("fSkip").checked=!!(t&&t.skipOff);$("fKind").value=t&&t.kind==="meeting"?"meeting":"work";setKind();attSel=new Set(t&&t.attendees||[]);renderAtt();$("fFlex").checked=!!(t&&t.flex);$("fNeed").value=t&&t.need||"";setFlex();
   setColor(t?t.color:COLORS[Math.max(typesOf().indexOf($("fType").value),0)%COLORS.length]);
   $("form").hidden=false;$("addBtn").hidden=true;$("fType").focus();
 }
+let attSel=new Set();
+function renderAtt(){
+  const box=$("fAttList");box.innerHTML="";
+  const names=[...new Set([...tasks.filter(t=>t.kind==="meeting").flatMap(t=>t.attendees||[]),...attSel])].sort();
+  names.forEach(n=>{const l=document.createElement("label");l.className="chk";l.style.margin="0";const c=document.createElement("input");c.type="checkbox";c.style.width="auto";c.checked=attSel.has(n);c.onchange=()=>{if(c.checked)attSel.add(n);else attSel.delete(n)};l.append(c,document.createTextNode(" "+n));box.appendChild(l)});
+  if(!names.length){const e=document.createElement("span");e.className="empty";e.style.padding="0";e.textContent="まだ名前がありません。下に入力して追加してください";box.appendChild(e)}
+}
+$("fAttAdd").onclick=()=>{const v=$("fAttNew").value.trim();if(!v)return;attSel.add(v);$("fAttNew").value="";renderAtt()};
 function setFlex(){
   const meet=$("fKind").value==="meeting",f=$("fFlex").checked&&!meet;
   $("fFlex").parentElement.hidden=meet;$("fFlexBox").hidden=!f;
@@ -803,6 +813,7 @@ function fillWho(selected){
 const setKind=()=>{
   const m=$("fKind").value==="meeting";
   [$("fType").parentElement,$("fWhoSel").parentElement,$("fSkip").parentElement].forEach(e=>e.hidden=m);
+  $("fAttBox").hidden=!m;
   if(m){$("fTypeNew").hidden=true;$("fWhoNew").hidden=true}
   else{$("fTypeNew").hidden=$("fType").value!=="__new";$("fWhoNew").hidden=$("fWhoSel").value!=="__new"}
 };
@@ -877,13 +888,14 @@ $("form").onsubmit=e=>{
   if(!ty)ty="その他";
   const kind=$("fKind").value;if(kind==="meeting")ty="打ち合わせ";
   const who=kind==="meeting"?"":($("fWhoSel").value==="__new"?$("fWhoNew").value.trim():$("fWhoSel").value);
+  if(kind==="meeting"&&$("fAttNew").value.trim()){attSel.add($("fAttNew").value.trim());$("fAttNew").value=""}
   const flex=kind!=="meeting"&&$("fFlex").checked;
   if(!flex&&!$("fAll").checked&&s===en&&$("fT2").value<=$("fT1").value){$("status").textContent="終了時刻は開始時刻より後にしてください";return}
   const p=curProp();
   if(p&&p.id!==LEG&&kind!=="meeting"&&!(p.types||[]).includes(ty)){p.types=[...(p.types||[]),ty];saveProp(p)}
   const color=(document.querySelector("#colors input:checked")||{}).value||COLORS[0];
   const id=editId||"t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  saveTask({id,propId:cur===LEG?"":cur,kind,type:ty,name:$("fName").value.trim(),who,start:s,end:en,color,note:$("fNote").value.trim(),allDay:flex?true:$("fAll").checked,t1:$("fT1").value,t2:$("fT2").value,skipOff:flex?false:$("fSkip").checked,flex:flex,need:flex&&$("fNeed").value?Math.max(1,Math.min(60,+$("fNeed").value)):0},tasks.find(x=>x.id===id));
+  saveTask({id,propId:cur===LEG?"":cur,kind,type:ty,name:$("fName").value.trim(),who,start:s,end:en,color,note:$("fNote").value.trim(),allDay:flex?true:$("fAll").checked,t1:$("fT1").value,t2:$("fT2").value,skipOff:flex?false:$("fSkip").checked,attendees:kind==="meeting"?[...attSel]:[],flex:flex,need:flex&&$("fNeed").value?Math.max(1,Math.min(60,+$("fNeed").value)):0},tasks.find(x=>x.id===id));
   closeForm();
 };
 
