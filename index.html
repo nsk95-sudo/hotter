@@ -283,6 +283,10 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
         <label>何工事か(工事名)<input id="fName" required maxlength="40" placeholder="例:土台敷き"></label>
         <label>担当(業者)<select id="fWhoSel"></select></label>
         <input id="fWhoNew" maxlength="40" placeholder="新しい業者名 例:山田組" aria-label="新しい業者名" hidden>
+        <label>担当(業者)2社目(いれば)<select id="fWho2Sel"></select></label>
+        <input id="fWho2New" maxlength="40" placeholder="新しい業者名 例:佐藤設備" aria-label="2社目の新しい業者名" hidden>
+        <label>担当(業者)3社目(いれば)<select id="fWho3Sel"></select></label>
+        <input id="fWho3New" maxlength="40" placeholder="新しい業者名 例:田中塗装" aria-label="3社目の新しい業者名" hidden>
         <div id="fAttBox" hidden><div class="fld" style="font-weight:600;margin:6px 0 4px">同席する社内メンバー(LINEで通知します)</div><div id="fAttList" style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:6px"></div><div class="row2"><input id="fAttNew" maxlength="20" placeholder="新しい名前 例:山田" aria-label="新しい名前"><button type="button" id="fAttAdd" class="sync" style="margin:0">名前を追加</button></div></div>
         <div class="row2">
           <label>開始日<input id="fStart" type="date" required></label>
@@ -358,6 +362,7 @@ const propOf=t=>props.find(p=>p.id===t.propId);
 const pcol=p=>p.color||COLORS[Math.max(props.findIndex(x=>x.id===p.id),0)%COLORS.length];
 const VC=["#1d7a6c","#2b6cb0","#c05621","#97266d","#5a67d8","#b7791f","#2f855a","#c53030","#6b46c1","#0987a0","#8a6d3b","#d53f8c"];
 const vcol=n=>{if(!n)return "#718096";let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))>>>0;return VC[h%VC.length]};
+const whoL=t=>[t.who,t.who2,t.who3].filter(Boolean),whoS=t=>whoL(t).join("・"),hasWho=(t,n)=>!!n&&whoL(t).includes(n);
 const tcol=t=>{const p=propOf(t);return cur===ALL&&p?pcol(p):vcol(t.who)};
 const handsOn=k=>(cur===ALL?props:[curProp()]).filter(p=>p&&p.handover===k);
 const mapLink=p=>{const u=(p&&p.mapUrl)||"";if(/^https?:\/\//i.test(u))return u;return p&&p.addr?"https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(p.addr):""};
@@ -435,7 +440,7 @@ function gErr(e){
 function applyData(){
   const sel=$("pvSel");
   if(realWrite){
-    const names=[...new Set(rawTasks.map(t=>t.who).filter(Boolean))].sort();
+    const names=[...new Set(rawTasks.flatMap(whoL))].sort();
     const old=sel.value;
     sel.innerHTML="";
     const o0=document.createElement("option");o0.value="";o0.textContent="通常の表示";sel.appendChild(o0);
@@ -447,15 +452,15 @@ function applyData(){
   $("mineWrap").hidden=!mineName;$("mineChk").checked=onlyMine;
   if(previewAs){
     const m={};
-    const pids=new Set(rawTasks.filter(t=>t.who===previewAs&&t.kind!=="meeting").map(t=>t.propId||""));
+    const pids=new Set(rawTasks.filter(t=>hasWho(t,previewAs)&&t.kind!=="meeting").map(t=>t.propId||""));
     tasks=rawTasks.filter(t=>t.kind!=="meeting"&&pids.has(t.propId||""));
     tasks.forEach(t=>{if(t.propId&&!m[t.propId])m[t.propId]={id:t.propId,name:t.propName||"物件",addr:t.propAddr||"",mapUrl:t.propMap||"",dropbox:t.propDrop||"",types:[],ts:0}});
-    if(onlyMine)tasks=tasks.filter(t=>t.who===previewAs);
+    if(onlyMine)tasks=tasks.filter(t=>hasWho(t,previewAs));
     props=Object.values(m);canWrite=false;
     $("status").textContent="確認中:業者「"+previewAs+"」にはこのように見えます(閲覧のみ)";
   }else{
     tasks=rawTasks;props=rawProps;canWrite=realWrite;
-    if(vendorMode&&onlyMine)tasks=rawTasks.filter(t=>t.who===vendorNm);
+    if(vendorMode&&onlyMine)tasks=rawTasks.filter(t=>hasWho(t,vendorNm));
   }
   render();
 }
@@ -477,7 +482,7 @@ async function feedPush(){
   }
   if(tasksRef){
     const vm={};
-    tasks.forEach(t=>{if(t.kind!=="meeting"&&t.who){const k=t.propId||"";(vm[k]=vm[k]||new Set()).add(t.who)}});
+    tasks.forEach(t=>{if(t.kind!=="meeting"&&t.who){const k=t.propId||"";whoL(t).forEach(w=>(vm[k]=vm[k]||new Set()).add(w))}});
     for(const t of tasks){
       const want=t.kind==="meeting"?[]:[...(vm[t.propId||""]||[])].sort();
       if(JSON.stringify(want)!==JSON.stringify(t.viewers||[])){try{await tasksRef.doc(t.id).update({viewers:want})}catch(e){}}
@@ -627,7 +632,7 @@ function render(){
   }else al.hidden=true;
   const lg=$("legend");lg.innerHTML="";lg.hidden=false;
   if(cur===ALL)props.forEach(p=>{const sp=document.createElement("span"),i=document.createElement("i");i.style.background=pcol(p);sp.append(i,document.createTextNode(p.name));lg.appendChild(sp)});
-  else{[...new Set(curTasks().filter(t=>t.kind!=="meeting"&&t.who).map(t=>t.who))].forEach(w=>{const sp=document.createElement("span"),i=document.createElement("i");i.style.background=vcol(w);sp.append(i,document.createTextNode(w));lg.appendChild(sp)});lg.hidden=!lg.children.length}
+  else{[...new Set(curTasks().filter(t=>t.kind!=="meeting").flatMap(whoL))].forEach(w=>{const sp=document.createElement("span"),i=document.createElement("i");i.style.background=vcol(w);sp.append(i,document.createTextNode(w));lg.appendChild(sp)});lg.hidden=!lg.children.length}
   $("noProp").hidden=!!cur;
   $("noProp").textContent=canWrite?"物件がまだありません。「＋物件」から追加してください。":"物件がまだありません。";
   if(!cur)return;
@@ -694,7 +699,7 @@ function renderGantt(){
     if(hp&&hp.handover&&hp.handover>=first&&hp.handover<=last){const hl=document.createElement("div");hl.className="ghand";hl.style.left=((dn(hp.handover)-1)*W)+"px";area.appendChild(hl)}
     if(today>=first&&today<=last){const td=document.createElement("div");td.className="gtoday";td.style.left=((dn(today)-1)*W)+"px";area.appendChild(td)}
     placed.forEach(({t,i,s,left,bw,sg})=>{
-      const tip=(t.flex?"[日程未定] ":"")+t.name+(t.who?"("+t.who+")":"")+" "+t.start+"〜"+t.end+(t.flex?" のどこか":"");
+      const tip=(t.flex?"[日程未定] ":"")+t.name+(t.who?"("+whoS(t)+")":"")+" "+t.start+"〜"+t.end+(t.flex?" のどこか":"");
       const lb=document.createElement("button");lb.type="button";lb.className="glab";
       lb.style.left=(left+1)+"px";lb.style.top=(i*44+3)+"px";lb.textContent=(t.flex?"調整中:":"")+t.name;lb.title=tip;
       lb.onclick=()=>{sel=s;renderDay()};
@@ -702,7 +707,7 @@ function renderGantt(){
       sg.forEach(([a,z])=>{
       const b=document.createElement("button");b.type="button";b.className="gbar";
       b.style.left=((dn(a)-1)*W+1)+"px";b.style.width=((dn(z)-dn(a)+1)*W-2)+"px";b.style.top=(i*44+21)+"px";
-      b.style.background=vcol(t.who);if(t.flex){const cc=vcol(t.who);b.style.background="repeating-linear-gradient(45deg,"+cc+" 0 5px,transparent 5px 10px)";b.style.border="2px dashed "+cc;b.style.boxSizing="border-box"}b.title=tip;b.setAttribute("aria-label",t.name);
+      {const wc=whoL(t).map(vcol),n=wc.length;b.style.background=n>1?"linear-gradient(to bottom,"+wc.map((c,i)=>c+" "+(i*100/n)+"% "+((i+1)*100/n)+"%").join(",")+")":vcol(t.who)}if(t.flex){const cc=vcol(t.who);b.style.background="repeating-linear-gradient(45deg,"+cc+" 0 5px,transparent 5px 10px)";b.style.border="2px dashed "+cc;b.style.boxSizing="border-box"}b.title=tip;b.setAttribute("aria-label",t.name);
       b.onclick=()=>{sel=s;renderDay()};
       area.appendChild(b);});
     });
@@ -723,11 +728,11 @@ function renderDay(){
     const body=document.createElement("div");body.className="body";
     const nm=document.createElement("div");nm.className="name";nm.textContent=(t.flex?"【日程未定】":"")+(cur===ALL&&propOf(t)?"【"+propOf(t).name+"】":"")+(t.type||"その他")+":"+t.name;
     const meta=document.createElement("div");meta.className="meta";
-    meta.textContent=t.flex?((t.who?t.who+" / ":"")+"期間 "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+" のどこか"+(t.need?"(作業"+t.need+"日)":"")):(t.who?t.who+" / ":"")+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":"");
+    meta.textContent=t.flex?((t.who?whoS(t)+" / ":"")+"期間 "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+" のどこか"+(t.need?"(作業"+t.need+"日)":"")):(t.who?whoS(t)+" / ":"")+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":"");
     if(t.kind==="meeting"&&t.attendees&&t.attendees.length)meta.textContent+="  同席:"+t.attendees.join("、");
     if(t.confirmedBy)meta.textContent+="  ✔業者が確定:"+t.confirmedBy;
     body.append(nm,meta);
-    if(t.flex&&((vendorMode&&t.who===vendorNm)||(previewAs&&t.who===previewAs))){
+    if(t.flex&&((vendorMode&&hasWho(t,vendorNm))||(previewAs&&hasWho(t,previewAs)))){
       const bx=document.createElement("div");bx.style.cssText="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;margin-top:8px";
       const mk=(lb,v)=>{const l=document.createElement("label");l.style.cssText="font-size:.78rem;display:grid;gap:2px";l.append(document.createTextNode(lb));const i=document.createElement("input");i.type="date";i.min=t.start;i.max=t.end;i.value=v;i.style.cssText="font:inherit;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)";l.appendChild(i);bx.appendChild(l);return i};
       const a=mk("入れる日(開始)",t.start),z=mk("終了日",endFor(t,t.start));
@@ -763,7 +768,7 @@ function fillTypes(selected){
 function openForm(t){
   editId=t?t.id:null;
   fillTypes(t?(t.type||"その他"):"");
-  $("fName").value=t?t.name:"";fillWho(t?t.who||"":"");
+  $("fName").value=t?t.name:"";fillWho(t?t.who||"":"",t?t.who2||"":"",t?t.who3||"":"");
   $("fStart").value=t?t.start:sel;$("fEnd").value=t?t.end:sel;$("fNote").value=t?t.note||"":"";
   const al2=!t||t.allDay!==false;$("fAll").checked=al2;$("fTimes").hidden=al2;$("fT1").value=t&&t.t1?t.t1:"08:00";$("fT2").value=t&&t.t2?t.t2:"17:00";$("fSkip").checked=!!(t&&t.skipOff);$("fKind").value=t&&t.kind==="meeting"?"meeting":"work";setKind();attSel=new Set(t&&t.attendees||[]);renderAtt();$("fFlex").checked=!!(t&&t.flex);$("fNeed").value=t&&t.need||"";setFlex();
   setColor(t?t.color:COLORS[Math.max(typesOf().indexOf($("fType").value),0)%COLORS.length]);
@@ -798,27 +803,32 @@ function confirmFlex(t){
 }
 function closeForm(){$("form").hidden=true;$("addBtn").hidden=!canWrite}
 function vendorsFor(ty){
-  const c={};tasks.forEach(t=>{if(t.who&&(t.type||"その他")===ty)c[t.who]=(c[t.who]||0)+1});
+  const c={};tasks.forEach(t=>{if((t.type||"その他")===ty)whoL(t).forEach(w=>{c[w]=(c[w]||0)+1})});
   return Object.keys(c).sort((a,b)=>c[b]-c[a]);
 }
-function fillWho(selected){
+function fillWho(selected,selected2,selected3){
   const ty=$("fType").value==="__new"?$("fTypeNew").value.trim():$("fType").value;
-  const vs=vendorsFor(ty||"その他");if(selected&&!vs.includes(selected))vs.unshift(selected);
-  const s=$("fWhoSel");s.innerHTML="";
-  const o0=document.createElement("option");o0.value="";o0.textContent="(未定)";s.appendChild(o0);
-  vs.forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;s.appendChild(o)});
-  const on=document.createElement("option");on.value="__new";on.textContent="＋新しい業者を入力";s.appendChild(on);
-  s.value=selected||"";$("fWhoNew").hidden=true;$("fWhoNew").value="";
+  const vs=vendorsFor(ty||"その他");
+  [selected3,selected2,selected].forEach(x=>{if(x&&!vs.includes(x))vs.unshift(x)});
+  [["fWhoSel","fWhoNew",selected,"(未定)"],["fWho2Sel","fWho2New",selected2,"(なし)"],["fWho3Sel","fWho3New",selected3,"(なし)"]].forEach(([sid,nid,val,none])=>{
+    const s=$(sid);s.innerHTML="";
+    const o0=document.createElement("option");o0.value="";o0.textContent=none;s.appendChild(o0);
+    vs.forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;s.appendChild(o)});
+    const on=document.createElement("option");on.value="__new";on.textContent="＋新しい業者を入力";s.appendChild(on);
+    s.value=val||"";$(nid).hidden=true;$(nid).value="";
+  });
 }
 const setKind=()=>{
   const m=$("fKind").value==="meeting";
-  [$("fType").parentElement,$("fWhoSel").parentElement,$("fSkip").parentElement].forEach(e=>e.hidden=m);
+  [$("fType").parentElement,$("fWhoSel").parentElement,$("fWho2Sel").parentElement,$("fWho3Sel").parentElement,$("fSkip").parentElement].forEach(e=>e.hidden=m);
   $("fAttBox").hidden=!m;
-  if(m){$("fTypeNew").hidden=true;$("fWhoNew").hidden=true}
-  else{$("fTypeNew").hidden=$("fType").value!=="__new";$("fWhoNew").hidden=$("fWhoSel").value!=="__new"}
+  if(m){$("fTypeNew").hidden=true;$("fWhoNew").hidden=true;$("fWho2New").hidden=true;$("fWho3New").hidden=true}
+  else{$("fTypeNew").hidden=$("fType").value!=="__new";$("fWhoNew").hidden=$("fWhoSel").value!=="__new";$("fWho2New").hidden=$("fWho2Sel").value!=="__new";$("fWho3New").hidden=$("fWho3Sel").value!=="__new"}
 };
 $("fKind").onchange=setKind;
 $("fWhoSel").onchange=()=>{const nw=$("fWhoSel").value==="__new";$("fWhoNew").hidden=!nw;if(nw)$("fWhoNew").focus()};
+$("fWho2Sel").onchange=()=>{const nw=$("fWho2Sel").value==="__new";$("fWho2New").hidden=!nw;if(nw)$("fWho2New").focus()};
+$("fWho3Sel").onchange=()=>{const nw=$("fWho3Sel").value==="__new";$("fWho3New").hidden=!nw;if(nw)$("fWho3New").focus()};
 $("fAll").onchange=()=>{$("fTimes").hidden=$("fAll").checked};
 function renderTypeOrder(){
   const p=curProp(),box=$("typeOrder");box.innerHTML="";
@@ -887,7 +897,9 @@ $("form").onsubmit=e=>{
   let ty=$("fType").value==="__new"?$("fTypeNew").value.trim():$("fType").value;
   if(!ty)ty="その他";
   const kind=$("fKind").value;if(kind==="meeting")ty="打ち合わせ";
-  const who=kind==="meeting"?"":($("fWhoSel").value==="__new"?$("fWhoNew").value.trim():$("fWhoSel").value);
+  const pick=(sid,nid)=>kind==="meeting"?"":($(sid).value==="__new"?$(nid).value.trim():$(sid).value);
+  const wl=[...new Set([pick("fWhoSel","fWhoNew"),pick("fWho2Sel","fWho2New"),pick("fWho3Sel","fWho3New")].filter(Boolean))];
+  const who=wl[0]||"",who2=wl[1]||"",who3=wl[2]||"";
   if(kind==="meeting"&&$("fAttNew").value.trim()){attSel.add($("fAttNew").value.trim());$("fAttNew").value=""}
   const flex=kind!=="meeting"&&$("fFlex").checked;
   if(!flex&&!$("fAll").checked&&s===en&&$("fT2").value<=$("fT1").value){$("status").textContent="終了時刻は開始時刻より後にしてください";return}
@@ -895,7 +907,7 @@ $("form").onsubmit=e=>{
   if(p&&p.id!==LEG&&kind!=="meeting"&&!(p.types||[]).includes(ty)){p.types=[...(p.types||[]),ty];saveProp(p)}
   const color=(document.querySelector("#colors input:checked")||{}).value||COLORS[0];
   const id=editId||"t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  saveTask({id,propId:cur===LEG?"":cur,kind,type:ty,name:$("fName").value.trim(),who,start:s,end:en,color,note:$("fNote").value.trim(),allDay:flex?true:$("fAll").checked,t1:$("fT1").value,t2:$("fT2").value,skipOff:flex?false:$("fSkip").checked,attendees:kind==="meeting"?[...attSel]:[],flex:flex,need:flex&&$("fNeed").value?Math.max(1,Math.min(60,+$("fNeed").value)):0},tasks.find(x=>x.id===id));
+  saveTask({id,propId:cur===LEG?"":cur,kind,type:ty,name:$("fName").value.trim(),who,who2,who3,start:s,end:en,color,note:$("fNote").value.trim(),allDay:flex?true:$("fAll").checked,t1:$("fT1").value,t2:$("fT2").value,skipOff:flex?false:$("fSkip").checked,attendees:kind==="meeting"?[...attSel]:[],flex:flex,need:flex&&$("fNeed").value?Math.max(1,Math.min(60,+$("fNeed").value)):0},tasks.find(x=>x.id===id));
   closeForm();
 };
 
@@ -940,7 +952,7 @@ function buildPdfCanvas(from,to,o){
   const LL=[];
   if(opt.list==="type")list.forEach(t=>LL.push({t}));
   else if(opt.list==="vendor"){
-    const g={};list.forEach(t=>{const k=t.who||"(担当未定)";(g[k]=g[k]||[]).push(t)});
+    const g={};list.forEach(t=>{(whoL(t).length?whoL(t):["(担当未定)"]).forEach(k=>(g[k]=g[k]||[]).push(t))});
     Object.keys(g).sort().forEach(k=>{LL.push({h:k});g[k].forEach(t=>LL.push({t,v:1}))});
   }
   const listH=LL.length?60+LL.reduce((a,l)=>a+(l.h?38:30),0):0;
@@ -977,6 +989,7 @@ function buildPdfCanvas(from,to,o){
       sg.forEach(([a,b])=>{
         const bx=X0+di(a)*dw+1,by=yy+4+i*54+26,bw=(di(b)-di(a)+1)*dw-2;
         if(t.flex){x.globalAlpha=.3;x.fillRect(bx,by,bw,20);x.globalAlpha=1;x.strokeStyle=vcol(t.who);x.lineWidth=2;x.setLineDash([6,4]);x.strokeRect(bx+1,by+1,bw-2,18);x.setLineDash([]);x.lineWidth=1}
+        else if(t.who2){const wl=whoL(t),hh=20/wl.length;wl.forEach((w,i)=>{x.fillStyle=vcol(w);x.fillRect(bx,by+i*hh,bw,hh)});x.fillStyle=vcol(t.who)}
         else x.fillRect(bx,by,bw,20);
       });
     });
@@ -991,7 +1004,7 @@ function buildPdfCanvas(from,to,o){
       const t=l.t;
       x.fillStyle=vcol(t.who);x.fillRect(PAD+(l.v?24:0),ly+4,10,18);
       x.fillStyle="#222";x.font="19px "+FONT;
-      x.fillText((t.flex?"【日程調整中】":"")+(t.type||"その他")+" / "+t.name+(l.v?"":(t.who?" / "+t.who:""))+" / "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.flex?" のどこか":"")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":""),PAD+(l.v?46:22),ly);
+      x.fillText((t.flex?"【日程調整中】":"")+(t.type||"その他")+" / "+t.name+(l.v?(whoL(t).length>1?" / "+whoS(t):""):(t.who?" / "+whoS(t):""))+" / "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.flex?" のどこか":"")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":""),PAD+(l.v?46:22),ly);
       ly+=30;
     });
     ly+=20;
@@ -1373,8 +1386,8 @@ function buildIcs(all,inclMeet,pid,kind){
     const meet=t.kind==="meeting";
     if(meet&&!inclMeet)return;
     const p=propOf(t),pn=p?"【"+p.name+"】":"";
-    const title=meet?"◇打ち合わせ:"+t.name+pn:(t.flex?"【調整中】":"")+t.name+"("+(t.type||"その他")+")"+pn+(t.who?" "+t.who:"");
-    const desc=[p&&p.addr?"住所:"+p.addr:"",mapLink(p)?"地図:"+mapLink(p):"",t.who?"担当:"+t.who:"",t.note||""].filter(Boolean).join("\n");
+    const title=meet?"◇打ち合わせ:"+t.name+pn:(t.flex?"【調整中】":"")+t.name+"("+(t.type||"その他")+")"+pn+(t.who?" "+whoS(t):"");
+    const desc=[p&&p.addr?"住所:"+p.addr:"",mapLink(p)?"地図:"+mapLink(p):"",t.who?"担当:"+whoS(t):"",t.note||""].filter(Boolean).join("\n");
     const timed=t.allDay===false&&t.t1&&t.t2;
     segs(t,p).forEach(([a,b],i)=>{
       const dt=timed?["DTSTART:"+icsUtc(a,t.t1),"DTEND:"+icsUtc(b,t.t2)]:["DTSTART;VALUE=DATE:"+ymdc(a),"DTEND;VALUE=DATE:"+ymdc(dayAfter(b))];
