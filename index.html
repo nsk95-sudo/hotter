@@ -361,6 +361,7 @@ function typesFor(pid){
   return a;
 }
 const formTypes=()=>cur===ALL?typesFor($("fProp").value):typesOf();
+const usedTypes=()=>typesOf().filter(ty=>curTasks().some(t=>t.kind!=="meeting"&&(t.type||"その他")===ty));
 function typesOf(){
   const p=curProp(),a=p&&p.types?p.types.slice():[];
   curTasks().forEach(t=>{if(t.kind==="meeting")return;const x=t.type||"その他";if(!a.includes(x))a.push(x)});
@@ -833,7 +834,7 @@ function renderGantt(){
   const today=ymd(new Date()),cp=curProp();
   const box=$("gantt");box.innerHTML="";
   if(cur===ALL){const pp=document.createElement("p");pp.className="empty";pp.style.padding="16px";pp.textContent="横棒の工程表は、物件を選んで表示します。";box.appendChild(pp);return}
-  const types=typesOf();
+  const types=usedTypes();
   if(!types.length){const p=document.createElement("p");p.className="empty";p.style.padding="16px";p.textContent="工事がまだありません。下の「工事を追加」から最初の工事を登録してください。";box.appendChild(p);return}
   const [first,last]=ganttRange(),days=[];
   for(let k=first;k<=last;k=dayAfter(k))days.push(k);
@@ -1051,6 +1052,12 @@ function renderTypeOrder(){
       b.onclick=()=>{const a=typesOf(),j=i+d;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];updInfo({types:a});renderTypeOrder()};
       g.appendChild(b);
     });
+    if(!curTasks().some(t=>t.kind!=="meeting"&&(t.type||"その他")===name)){
+      const x=document.createElement("button");x.type="button";x.textContent="削除";x.style.color="var(--danger)";
+      x.setAttribute("aria-label",name+"をこの物件から削除");
+      x.onclick=()=>{updInfo({types:(p.types||[]).filter(v=>v!==name)});renderTypeOrder()};
+      g.appendChild(x);
+    }
     r.append(s,g);box.appendChild(r);
   });
 }
@@ -1182,7 +1189,7 @@ function buildPdfCanvas(from,to,o){
   const CW=Math.max(1684,LW+PAD*2+n*dw),X0=PAD+LW,XE=X0+n*dw;
   const mc=document.createElement("canvas").getContext("2d");mc.font="18px "+FONT;
   const byStart=(a,b)=>a.start<b.start?-1:a.start>b.start?1:0;
-  const rows=typesOf().map(ty=>{
+  const rows=usedTypes().map(ty=>{
     const items=curTasks().filter(t=>(t.type||"その他")===ty&&t.kind!=="meeting"&&t.start<=to&&t.end>=from).sort(byStart);
     const lanes=[],pl=[];
     items.forEach(t=>{
