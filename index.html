@@ -712,7 +712,8 @@ function saveErr(e,what,body){
     c==="invalid-argument"?(kb>900?"データが大きすぎます(地図の画像を小さくしてください)":"保存できない内容が含まれています"):
     "原因が分かりませんでした";
   try{console.log("save error",what,c,e&&e.message)}catch(x){}
-  return what+"を保存できませんでした。"+why+"("+(c||(e&&e.message)||"不明")+"・"+kb+"KB)";
+  const acct=(document.getElementById("who")||{}).textContent||"";
+  return what+"を保存できませんでした。"+why+"("+(c||(e&&e.message)||"不明")+"・"+kb+"KB・"+acct+")";
 }
 async function saveProp(p){
   const {id,...body}=p;
@@ -1748,7 +1749,7 @@ const ERR={
   "auth/network-request-failed":"通信できませんでした"
 };
 const errMsg=e=>ERR[e&&e.code]||"うまくいきませんでした("+((e&&e.code)||"")+")";
-let started=false;
+let started=false,startedUid="";
 
 g("btnLogin").onclick=async()=>{
   g("authMsg").textContent="";
@@ -1792,10 +1793,22 @@ async function gate(u){
   }
   startApp(u,role,vendorName);
 }
-onAuthStateChanged(auth,u=>{if(!started)gate(u)});
+onAuthStateChanged(auth,u=>{if(!started)gate(u);else if(!u||u.uid!==startedUid)location.reload()});
 
+async function retry(fn){
+  try{return await fn()}
+  catch(e){
+    if(e&&(e.code==="permission-denied"||e.code==="unauthenticated")&&auth.currentUser){
+      try{await auth.currentUser.getIdToken(true)}catch(x){}
+      return await fn();
+    }
+    throw e;
+  }
+}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&auth.currentUser)auth.currentUser.getIdToken(true).catch(()=>{})});
+setInterval(()=>{if(auth.currentUser)auth.currentUser.getIdToken(true).catch(()=>{})},40*60*1000);
 function startApp(u,role,vendorName){
-  if(started)return;started=true;
+  if(started)return;started=true;startedUid=u.uid;
   const staff=role==="admin"||role==="member";
   const tq=()=>role==="vendor"?query(collection(fs,"tasks"),or(where("who","==",vendorName),where("viewers","array-contains",vendorName))):collection(fs,"tasks");
   const wrap=s=>({docs:s.docs.map(d=>({id:d.id,data:()=>d.data()}))});
@@ -1811,9 +1824,9 @@ function startApp(u,role,vendorName){
       return onSnapshot(name==="tasks"?tq():collection(fs,name),s=>next(wrap(s)),err);
     },
     doc:id=>({
-      set:b=>setDoc(doc(fs,name,id),JSON.parse(JSON.stringify(b))),
-      update:b=>updateDoc(doc(fs,name,id),JSON.parse(JSON.stringify(b))),
-      delete:()=>deleteDoc(doc(fs,name,id))
+      set:b=>retry(()=>setDoc(doc(fs,name,id),JSON.parse(JSON.stringify(b)))),
+      update:b=>retry(()=>updateDoc(doc(fs,name,id),JSON.parse(JSON.stringify(b)))),
+      delete:()=>retry(()=>deleteDoc(doc(fs,name,id)))
     })
   })};
   const userShim={can:async()=>staff,isOwner:async()=>role==="admin",canEdit:async()=>role==="admin",isVendor:async()=>role==="vendor",vendorName:async()=>vendorName};
