@@ -202,6 +202,11 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
     <label class="fld">工事の種類<select id="iKind"><option value="">未選択</option><option value="new">新築</option><option value="reform">リフォーム</option></select></label>
     <label class="fld">着工日<input id="iStart" type="date"></label>
     <label class="fld">引き渡し予定日<input id="iHand" type="date"></label>
+    <div class="fld" style="margin-top:14px;font-weight:600">定期点検</div>
+    <p class="empty" style="text-align:left;padding:4px 0">引き渡し予定日から数えて、点検の予定をまとめて作ります。カレンダーには、打ち合わせと同じ形(◇)で入ります。業者には見えません。日付は、あとで1件ずつ編集で直せます。</p>
+    <div id="inspBox" style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:6px"></div>
+    <button type="button" class="sync" id="inspMake" style="margin:0 0 6px">点検の予定を作る</button>
+    <p class="empty" id="inspMsg" style="text-align:left;padding:0"></p>
     <div class="fld" style="margin-top:14px;font-weight:600">カレンダー購読(自動更新)</div>
     <p class="empty" id="feedNote" style="text-align:left;padding:4px 0"></p>
     <button type="button" class="sync" id="feedMake">購読URLを作る</button>
@@ -1055,14 +1060,46 @@ function openInfo(){
   $("iName").value=p.name||"";$("iAddr").value=p.addr||"";$("iMap").value=p.mapUrl||"";$("iHand").value=p.handover||"";$("iStart").value=p.start||"";$("iKind").value=p.kind||"";$("iStage").value=stageOf(p);$("iZip").value=p.zip?p.zip.slice(0,3)+"-"+p.zip.slice(3):"";
   document.querySelectorAll("#pcolors input").forEach(r=>r.checked=r.value===pcol(p));
   $("iDrop").value=p.dropbox||"";$("iLtext").value=p.letterText||"";$("iLperiod").value=p.letterPeriod||"";$("iLdate").value=p.letterDate||"";$("iLseason").value=p.letterSeason||"";$("iMapZoom").value=String(p.mapZoom||17);$("iMapMark").checked=p.mapImgMark===true;$("mapPrev").hidden=true;mapStatRefresh();
-  $("infoPanel").hidden=false;renderTypeOrder();feedRefresh();
+  $("infoPanel").hidden=false;renderTypeOrder();feedRefresh();renderInsp();
 }
 $("infoBtn").onclick=()=>{if($("infoPanel").hidden)openInfo();else $("infoPanel").hidden=true};
 $("infoClose").onclick=()=>{$("infoPanel").hidden=true};
 $("iName").onchange=()=>{const v=$("iName").value.trim();if(v)updInfo({name:v})};
 $("iAddr").onchange=()=>updInfo({addr:$("iAddr").value.trim()});
 $("iMap").onchange=()=>updInfo({mapUrl:$("iMap").value.trim()});
-$("iHand").onchange=()=>updInfo({handover:$("iHand").value});
+$("iHand").onchange=()=>{updInfo({handover:$("iHand").value});renderInsp()};
+// ---- 定期点検 ----
+const INSP=[[1,"1か月点検"],[3,"3か月点検"],[6,"6か月点検"],[12,"1年点検"],[24,"2年点検"],[36,"3年点検"],[60,"5年点検"],[120,"10年点検"]];
+const inspDef=p=>p&&p.inspPlan?p.inspPlan:(p&&p.kind==="reform"?[12]:[6,12,24,60,120]);
+const addMonths=(k,n)=>{const [y,m,d]=k.split("-").map(Number),last=new Date(y,m-1+n+1,0).getDate();return ymd(new Date(y,m-1+n,Math.min(d,last)))};
+function renderInsp(){
+  const p=curProp(),box=$("inspBox");if(!box)return;box.innerHTML="";
+  if(!p||p.id===LEG)return;
+  const plan=inspDef(p),have=tasks.filter(t=>t.propId===p.id&&t.type==="定期点検").map(t=>t.name);
+  INSP.forEach(([n,lab])=>{
+    const l=document.createElement("label");l.className="chk";l.style.margin="0";
+    const c=document.createElement("input");c.type="checkbox";c.style.width="auto";c.value=n;c.checked=plan.includes(n);
+    c.onchange=()=>updInfo({inspPlan:[...box.querySelectorAll("input:checked")].map(x=>+x.value)});
+    l.append(c,document.createTextNode(" "+lab+(have.includes(lab)?"(作成済み)":"")));box.appendChild(l);
+  });
+  $("inspMsg").textContent=p.handover?"引き渡し予定日 "+p.handover.replace(/-/g,"/")+" から数えます":"先に、引き渡し予定日を入れてください";
+}
+$("inspMake").onclick=async()=>{
+  const p=curProp();if(!p||p.id===LEG||cur===ALL)return;
+  if(!p.handover){$("inspMsg").textContent="先に、引き渡し予定日を入れてください";return}
+  const plan=[...$("inspBox").querySelectorAll("input:checked")].map(x=>+x.value);
+  if(!plan.length){$("inspMsg").textContent="作る点検を選んでください";return}
+  const have=tasks.filter(t=>t.propId===p.id&&t.type==="定期点検").map(t=>t.name);
+  let n=0;
+  for(const [m,lab] of INSP){
+    if(!plan.includes(m)||have.includes(lab))continue;
+    const k=addMonths(p.handover,m),id="t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    await saveTask({id,propId:p.id,kind:"meeting",type:"定期点検",name:lab,who:"",who2:"",who3:"",start:k,end:k,color:COLORS[0],note:"",allDay:true,t1:"10:00",t2:"11:00",skipOff:false,attendees:[],mvend:[],flex:false,need:0},null);
+    n++;
+  }
+  $("inspMsg").textContent=n?n+"件の点検の予定を作りました。全物件のカレンダーに入ります":"選んだ点検は、すでに作成済みです";
+  renderInsp();
+};
 $("iStart").onchange=()=>updInfo({start:$("iStart").value});
 $("iKind").onchange=()=>updInfo({kind:$("iKind").value});
 $("iStage").onchange=()=>{
@@ -1596,7 +1633,7 @@ function buildIcs(all,inclMeet,pid,kind){
     const meet=t.kind==="meeting";
     if(meet&&!inclMeet)return;
     const p=propOf(t),pn=p?"【"+p.name+"】":"";
-    const title=meet?"◇打ち合わせ:"+t.name+pn:(t.flex?"【調整中】":"")+t.name+"("+(t.type||"その他")+")"+pn+(t.who?" "+whoS(t):"");
+    const title=meet?(t.type==="定期点検"?"◇":"◇打ち合わせ:")+t.name+pn:(t.flex?"【調整中】":"")+t.name+"("+(t.type||"その他")+")"+pn+(t.who?" "+whoS(t):"");
     const desc=[p&&p.addr?"住所:"+p.addr:"",mapLink(p)?"地図:"+mapLink(p):"",t.who?"担当:"+whoS(t):"",t.note||""].filter(Boolean).join("\n");
     const timed=t.allDay===false&&t.t1&&t.t2;
     segs(t,p).forEach(([a,b],i)=>{
