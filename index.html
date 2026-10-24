@@ -319,7 +319,7 @@ const dn=s=>parseInt(s.slice(8),10);
 const WD=["日","月","火","水","木","金","土"];
 const ld=k=>{try{return JSON.parse(localStorage.getItem(k)||"[]")||[]}catch(e){return[]}};
 const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
-let props=ld("koutei-props"),tasks=ld("koutei-local"),cur="",view=new Date(),sel=ymd(new Date()),editId=null,propsRef=null,tasksRef=null,canWrite=true,mcp=null,syncOn=false,mode="cal";
+let props=ld("koutei-props"),tasks=ld("koutei-local"),cur=ALL,view=new Date(),sel=ymd(new Date()),editId=null,propsRef=null,tasksRef=null,canWrite=true,mcp=null,syncOn=false,mode="cal";
 view.setDate(1);
 
 const propList=()=>{const l=props.slice();if(tasks.some(t=>!t.propId))l.push({id:LEG,name:"物件未設定",types:[]});return l};
@@ -327,7 +327,7 @@ const curTasks=()=>cur===ALL?tasks.slice():tasks.filter(t=>(t.propId||LEG)===cur
 const curProp=()=>propList().find(p=>p.id===cur);
 let showDone=false;try{showDone=localStorage.getItem("koutei-done")==="1"}catch(e){}
 const isDone=p=>!!(p&&p.id!==LEG&&p.handover&&p.handover<ymd(new Date()));
-function ensureCur(){const l=propList();if(cur!==ALL&&!l.find(p=>p.id===cur))cur=l.length?l[0].id:""}
+function ensureCur(){const l=propList();if(!l.length){cur="";return}if(!cur)cur=ALL;if(cur!==ALL&&!l.find(p=>p.id===cur))cur=ALL}
 function typesFor(pid){
   const p=props.find(x=>x.id===pid),a=p&&p.types?p.types.slice():[];
   tasks.forEach(t=>{if(t.kind==="meeting"||(t.propId||LEG)!==pid)return;const x=t.type||"その他";if(!a.includes(x))a.push(x)});
@@ -625,8 +625,8 @@ function render(){
   ensureCur();
   const l0=propList(),l=showDone?l0:l0.filter(p=>!isDone(p)),s=$("prop");s.innerHTML="";
   $("doneWrap").hidden=!l0.some(isDone);$("showDone").checked=showDone;
-  if(cur&&cur!==ALL&&!l.find(p=>p.id===cur))cur=l.length?l[0].id:(l0.length>1?ALL:(l0[0]||{}).id||"");
-  if(l0.length>1){const o=document.createElement("option");o.value=ALL;o.textContent="全物件";s.appendChild(o)}
+  if(cur&&cur!==ALL&&!l.find(p=>p.id===cur))cur=ALL;
+  if(l0.length){const o=document.createElement("option");o.value=ALL;o.textContent="全物件";s.appendChild(o)}
   if(cur&&cur!==ALL&&!l.find(p=>p.id===cur)){const q=l0.find(p=>p.id===cur);if(q){const o=document.createElement("option");o.value=q.id;o.textContent=q.name+"(引き渡し済み)";s.appendChild(o)}}
   l.forEach(p=>{const o=document.createElement("option");o.value=p.id;o.textContent=p.name;s.appendChild(o)});
   if(cur)s.value=cur;
