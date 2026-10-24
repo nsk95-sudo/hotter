@@ -161,6 +161,12 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
   <h2>ユーザー管理</h2>
   <p class="empty">新しく登録した人は「承認待ち」です。役割を選んで保存すると、使えるようになります。「業者」は、工事の担当と同じ名前を入れると、その担当の工事だけ見られます。</p>
   <div id="userList"></div>
+  <h2 style="margin-top:28px">履歴の整理</h2>
+  <p class="empty" style="text-align:left">工事種別・業者・社内メンバーの名前の一覧です。打ち間違いは「名前を変える」で直すと、その名前を使っている工事や打ち合わせも、まとめて直ります。使っていない名前は「削除」できます。</p>
+  <div class="row2" style="margin-bottom:8px"><button type="button" class="sync" id="hTabT" style="margin:0">工事種別</button><button type="button" class="sync" id="hTabV" style="margin:0">業者</button></div>
+  <button type="button" class="sync" id="hTabS" style="margin:0 0 8px">社内メンバー</button>
+  <div id="histList"></div>
+  <p class="status" id="histMsg"></p>
   <h2 style="margin-top:28px">データのバックアップ</h2>
   <p class="empty" style="text-align:left">全物件と全工事を、1つのファイル(.json)に保存します。月に1回くらい保存して、iPadの「ファイル」やDropboxに置いておくと安心です。ユーザーの登録は含みません。</p>
   <p class="empty" id="bkLast" style="text-align:left"></p>
@@ -423,7 +429,7 @@ function twoStep(btn,fn){
     if(user){try{if(user.isVendor&&await user.isVendor()){vendorMode=true;vendorNm=await user.vendorName()}}catch(e){}}
     if(user){try{if(await user.isOwner()){const m=await claude.use("mcp");if(m){mcp=m;syncOn=true;gMsg("Googleカレンダーと連携中:あなたのカレンダーに登録されます");$("syncAll").hidden=false}}}catch(e){}}
     tasksRef=db.collection("tasks");propsRef=db.collection("props");settingsRef=db.collection("settings");
-    if(canWrite)settingsRef.onSnapshot(s=>{const d=s.docs.find(x=>x.id==="feeds");reformTok=d&&d.data().reformToken||"";notifyTok=d&&d.data().notifyToken||"";feedRefresh();feedSched()},()=>{});
+    if(canWrite)settingsRef.onSnapshot(s=>{const h=s.docs.find(x=>x.id==="history");if(h){const hd=h.data();hist={types:hd.types||[],vendors:hd.vendors||[],staff:hd.staff||[]}}hLoaded=true;const d=s.docs.find(x=>x.id==="feeds");reformTok=d&&d.data().reformToken||"";notifyTok=d&&d.data().notifyToken||"";feedRefresh();feedSched()},()=>{});
     propsRef.onSnapshot(s=>{props=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));pLoaded=true;rawProps=props;applyData();feedSched()},()=>{});
     tasksRef.onSnapshot(s=>{
       tasks=s.docs.map(d=>({id:d.id,...d.data()}));rawTasks=tasks;
@@ -497,6 +503,62 @@ function applyData(){
 try{onlyMine=localStorage.getItem("koutei-mine")==="1"}catch(e){}
 $("mineChk").onchange=()=>{onlyMine=$("mineChk").checked;try{localStorage.setItem("koutei-mine",onlyMine?"1":"0")}catch(e){}applyData()};
 $("pvSel").onchange=()=>{previewAs=$("pvSel").value;if(!previewAs)$("status").textContent="共有中:変更は全員に反映されます";applyData()};
+// ---- 履歴の整理 ----
+let hTab="v";
+const histUse=(kind,n)=>kind==="t"?tasks.filter(t=>t.kind!=="meeting"&&(t.type||"その他")===n).length:kind==="v"?tasks.filter(t=>whoL(t).includes(n)||(t.mvend||[]).includes(n)).length:tasks.filter(t=>(t.attendees||[]).includes(n)).length;
+function renderHist(){
+  const box=$("histList");if(!box)return;box.innerHTML="";
+  [["hTabT","t"],["hTabV","v"],["hTabS","s"]].forEach(([id,k])=>{$(id).style.background=hTab===k?"var(--accent)":"";$(id).style.color=hTab===k?"var(--accent-ink)":""});
+  const list=hTab==="t"?allTypes():hTab==="v"?allVendors():allStaff();
+  if(!list.length){const e=document.createElement("p");e.className="empty";e.textContent="まだありません";box.appendChild(e);return}
+  list.forEach(n=>{
+    const c=histUse(hTab,n),r=document.createElement("div");
+    r.style.cssText="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)";
+    const nm=document.createElement("div");nm.style.cssText="flex:1;min-width:0;overflow-wrap:anywhere";nm.textContent=n;
+    const ct=document.createElement("span");ct.style.cssText="font-size:.8rem;color:var(--sub);white-space:nowrap";ct.textContent=c?c+"件で使用":"未使用";
+    const rn=document.createElement("button");rn.type="button";rn.className="sync";rn.style.margin="0";rn.textContent="名前を変える";rn.onclick=()=>histRename(hTab,n);
+    r.append(nm,ct,rn);
+    if(!c){const dl2=document.createElement("button");dl2.type="button";dl2.className="sync";dl2.style.cssText="margin:0;color:var(--danger)";dl2.textContent="削除";dl2.onclick=()=>histDelete(hTab,n);r.appendChild(dl2)}
+    box.appendChild(r);
+  });
+}
+$("hTabT").onclick=()=>{hTab="t";renderHist()};$("hTabV").onclick=()=>{hTab="v";renderHist()};$("hTabS").onclick=()=>{hTab="s";renderHist()};
+$("btnUsers").addEventListener("click",()=>setTimeout(renderHist,0));
+async function histSave(){if(settingsRef)await settingsRef.doc("history").set({types:hist.types,vendors:hist.vendors,staff:hist.staff})}
+async function histDelete(kind,n){
+  if(!settingsRef||!propsRef)return;
+  if(!confirm("「"+n+"」を履歴から削除します。よろしいですか?"))return;
+  const key=kind==="t"?"types":kind==="v"?"vendors":"staff";
+  hist[key]=hist[key].filter(x=>x!==n);
+  try{
+    if(kind==="t")for(const p of props.filter(q=>(q.types||[]).includes(n))){p.types=p.types.filter(x=>x!==n);await propsRef.doc(p.id).update({types:p.types})}
+    await histSave();$("histMsg").textContent="「"+n+"」を削除しました";
+  }catch(e){$("histMsg").textContent="削除できませんでした("+((e&&e.code)||"")+")"}
+  renderHist();
+}
+async function histRename(kind,n){
+  if(!settingsRef||!tasksRef||!propsRef)return;
+  const to=(prompt("「"+n+"」の新しい名前を入れてください。すでにある名前を入れると、1つにまとまります。",n)||"").trim();
+  if(!to||to===n)return;
+  const key=kind==="t"?"types":kind==="v"?"vendors":"staff";
+  const targets=tasks.filter(t=>kind==="t"?(t.kind!=="meeting"&&(t.type||"その他")===n):kind==="v"?(whoL(t).includes(n)||(t.mvend||[]).includes(n)):(t.attendees||[]).includes(n));
+  if(!confirm("「"+n+"」を「"+to+"」に変えます。使っている"+targets.length+"件の工事・打ち合わせも、まとめて直します。よろしいですか?"))return;
+  let ng=0,k=0;
+  const sw=a=>uniq((a||[]).map(x=>x===n?to:x));
+  for(const t of targets){
+    let up={};
+    if(kind==="t")up={type:to};
+    else if(kind==="v"){const w=sw(whoL(t));up={who:w[0]||"",who2:w[1]||"",who3:w[2]||"",mvend:sw(t.mvend)}}
+    else up={attendees:sw(t.attendees)};
+    try{await tasksRef.doc(t.id).update(up)}catch(e){ng++}
+    k++;if(k%10===0)$("histMsg").textContent="直しています… "+k+" / "+targets.length;
+  }
+  if(kind==="t")for(const p of props.filter(q=>(q.types||[]).includes(n))){try{p.types=sw(p.types);await propsRef.doc(p.id).update({types:p.types})}catch(e){ng++}}
+  hist[key]=uniq(hist[key].map(x=>x===n?to:x));
+  try{await histSave()}catch(e){ng++}
+  $("histMsg").textContent="「"+n+"」を「"+to+"」に変えました"+(ng?"("+ng+"件は直せませんでした)":"")+(kind==="v"?"。業者のアカウントやLINEの登録名は、別に直してください":"");
+  renderHist();
+}
 // ---- バックアップ ----
 function bkLastShow(){let v="";try{v=localStorage.getItem("koutei-bk")||""}catch(e){}$("bkLast").textContent=v?"この端末で最後に保存した日:"+v:"この端末では、まだ保存していません"}
 bkLastShow();
@@ -530,11 +592,17 @@ $("bkFile").onchange=async()=>{
 };
 // ---- カレンダー購読(自動更新) ----
 const FEED_BASE="https://koutei-feed.nsk95.workers.dev";
-let onlyMine=false,vendorMode=false,vendorNm="",notifyTok="",rawProps=[],rawTasks=[],previewAs="",realWrite=true,settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
+let hist={types:[],vendors:[],staff:[]},hLoaded=false,onlyMine=false,vendorMode=false,vendorNm="",notifyTok="",rawProps=[],rawTasks=[],previewAs="",realWrite=true,settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
 const feedUrl=p=>p&&p.feedToken&&FEED_BASE?FEED_BASE.replace(/\/$/,"")+"/"+p.feedToken+".ics":"";
 function feedSched(){if(!canWrite||!propsRef||!pLoaded||!tLoaded)return;clearTimeout(feedT);feedT=setTimeout(feedPush,2500)}
 async function feedPush(){
   if(previewAs)return;
+  if(hLoaded&&settingsRef){
+    const ut=allTypes(),uv=allVendors(),us=allStaff();
+    if(ut.length!==hist.types.length||uv.length!==hist.vendors.length||us.length!==hist.staff.length){
+      try{await settingsRef.doc("history").set({types:ut,vendors:uv,staff:us});hist={types:ut,vendors:uv,staff:us}}catch(e){}
+    }
+  }
   let fdb;try{fdb=await claude.use("db")}catch(e){return}
   if(!fdb)return;
   if(reformTok){
@@ -868,11 +936,17 @@ function renderDay(){
 
 // ---- 入力フォーム ----
 function setColor(c){document.querySelectorAll("#colors input").forEach(r=>r.checked=r.value===c)}
+const uniq=a=>[...new Set(a.filter(Boolean))];
+const allTypes=()=>uniq([...hist.types,...props.flatMap(p=>p.types||[]),...tasks.filter(t=>t.kind!=="meeting").map(t=>t.type||"その他")]).filter(x=>x!=="打ち合わせ").sort((a,b)=>a.localeCompare(b,"ja"));
+const allVendors=()=>uniq([...hist.vendors,...tasks.flatMap(whoL),...tasks.flatMap(t=>t.mvend||[])]).sort((a,b)=>a.localeCompare(b,"ja"));
+const allStaff=()=>uniq([...hist.staff,...tasks.flatMap(t=>t.attendees||[])]).sort((a,b)=>a.localeCompare(b,"ja"));
+function addOpts(sel,groups){groups.forEach(([lab,items])=>{if(!items.length)return;const g=document.createElement("optgroup");g.label=lab;items.forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;g.appendChild(o)});sel.appendChild(g)})}
 function fillTypes(selected){
-  const ty=formTypes(),s=$("fType");s.innerHTML="";
-  ty.forEach(x=>{const o=document.createElement("option");o.value=x;o.textContent=x;s.appendChild(o)});
+  const own=formTypes(),oth=allTypes().filter(x=>!own.includes(x)),ty=[...own,...oth],s=$("fType");s.innerHTML="";
+  if(selected&&!ty.includes(selected))own.unshift(selected),ty.unshift(selected);
+  addOpts(s,[["この物件の工事種別",own],["ほかの物件で使った工事種別",oth]]);
   const o=document.createElement("option");o.value="__new";o.textContent="＋新しい工事種別を入力";s.appendChild(o);
-  s.value=selected&&ty.includes(selected)?selected:(ty.length?ty[0]:"__new");
+  s.value=selected&&ty.includes(selected)?selected:(own.length?own[0]:ty.length?ty[0]:"__new");
   $("fTypeNew").hidden=s.value!=="__new";$("fTypeNew").value="";
 }
 function openForm(t){
@@ -893,14 +967,14 @@ function openForm(t){
 let attSel=new Set(),mvSel=new Set();
 function renderMv(){
   const box=$("fMvList");box.innerHTML="";
-  const names=[...new Set([...tasks.flatMap(whoL),...tasks.flatMap(t=>t.mvend||[]),...mvSel])].sort();
+  const names=uniq([...allVendors(),...mvSel]).sort((a,b)=>a.localeCompare(b,"ja"));
   names.forEach(n=>{const l=document.createElement("label");l.className="chk";l.style.margin="0";const c=document.createElement("input");c.type="checkbox";c.style.width="auto";c.checked=mvSel.has(n);c.onchange=()=>{if(c.checked)mvSel.add(n);else mvSel.delete(n)};l.append(c,document.createTextNode(" "+n));box.appendChild(l)});
   if(!names.length){const e=document.createElement("span");e.className="empty";e.style.padding="0";e.textContent="まだ業者がありません。下に入力して追加してください";box.appendChild(e)}
 }
 $("fMvAdd").onclick=()=>{const v=$("fMvNew").value.trim();if(!v)return;mvSel.add(v);$("fMvNew").value="";renderMv()};
 function renderAtt(){
   const box=$("fAttList");box.innerHTML="";
-  const names=[...new Set([...tasks.filter(t=>t.kind==="meeting").flatMap(t=>t.attendees||[]),...attSel])].sort();
+  const names=uniq([...allStaff(),...attSel]).sort((a,b)=>a.localeCompare(b,"ja"));
   names.forEach(n=>{const l=document.createElement("label");l.className="chk";l.style.margin="0";const c=document.createElement("input");c.type="checkbox";c.style.width="auto";c.checked=attSel.has(n);c.onchange=()=>{if(c.checked)attSel.add(n);else attSel.delete(n)};l.append(c,document.createTextNode(" "+n));box.appendChild(l)});
   if(!names.length){const e=document.createElement("span");e.className="empty";e.style.padding="0";e.textContent="まだ名前がありません。下に入力して追加してください";box.appendChild(e)}
 }
@@ -933,10 +1007,11 @@ function fillWho(selected,selected2,selected3){
   const ty=$("fType").value==="__new"?$("fTypeNew").value.trim():$("fType").value;
   const vs=vendorsFor(ty||"その他");
   [selected3,selected2,selected].forEach(x=>{if(x&&!vs.includes(x))vs.unshift(x)});
+  const ov=allVendors().filter(v=>!vs.includes(v));
   [["fWhoSel","fWhoNew",selected,"(未定)"],["fWho2Sel","fWho2New",selected2,"(なし)"],["fWho3Sel","fWho3New",selected3,"(なし)"]].forEach(([sid,nid,val,none])=>{
     const s=$(sid);s.innerHTML="";
     const o0=document.createElement("option");o0.value="";o0.textContent=none;s.appendChild(o0);
-    vs.forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;s.appendChild(o)});
+    addOpts(s,[["この工事種別で使った業者",vs],["ほかの業者",ov]]);
     const on=document.createElement("option");on.value="__new";on.textContent="＋新しい業者を入力";s.appendChild(on);
     s.value=val||"";$(nid).hidden=true;$(nid).value="";
   });
