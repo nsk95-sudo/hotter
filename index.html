@@ -636,9 +636,19 @@ $("feedReset").onclick=async()=>{
 };
 
 // ---- 保存 ----
+function saveErr(e,what,body){
+  const c=(e&&e.code)||"",kb=Math.round(JSON.stringify(body||{}).length/1024);
+  const why=c==="permission-denied"?"権限がないと言われました。一度ログアウトして、ログインし直してください":
+    c==="resource-exhausted"?"今日の無料の利用枠を使い切りました。明日になると直ります":
+    c==="unavailable"||c==="deadline-exceeded"?"通信がつながりませんでした。電波のよい所で、もう一度保存してください":
+    c==="invalid-argument"?(kb>900?"データが大きすぎます(地図の画像を小さくしてください)":"保存できない内容が含まれています"):
+    "原因が分かりませんでした";
+  try{console.log("save error",what,c,e&&e.message)}catch(x){}
+  return what+"を保存できませんでした。"+why+"("+(c||(e&&e.message)||"不明")+"・"+kb+"KB)";
+}
 async function saveProp(p){
   const {id,...body}=p;
-  if(propsRef){try{await propsRef.doc(id).set(body)}catch(e){$("status").textContent="保存できませんでした。編集権限を確認してください"}}
+  if(propsRef){try{await propsRef.doc(id).set(body)}catch(e){$("status").textContent=saveErr(e,"物件「"+(p.name||"")+"」",body)}}
   else{const i=props.findIndex(x=>x.id===id);if(i>=0)props[i]=p;else props.push(p);sv("koutei-props",props);render()}
 }
 async function deleteProp(id){
@@ -661,7 +671,7 @@ async function saveTask(t,prev){
   const {id,...body}=t;
   if(prev&&prev.viewers)body.viewers=prev.viewers;
   {const pp=propOf(t);body.propName=pp?pp.name:"";body.propAddr=pp&&pp.addr?pp.addr:"";body.propMap=pp&&pp.mapUrl?pp.mapUrl:"";body.propDrop=pp&&pp.dropbox?pp.dropbox:""}
-  if(tasksRef){try{await tasksRef.doc(id).set(body)}catch(e){$("status").textContent="保存できませんでした。編集権限を確認してください"}}
+  if(tasksRef){try{await tasksRef.doc(id).set(body)}catch(e){$("status").textContent=saveErr(e,"工事「"+(t.name||"")+"」",body)}}
   else{const i=tasks.findIndex(x=>x.id===id);if(i>=0)tasks[i]=t;else tasks.push(t);sv("koutei-local",tasks);render()}
 }
 async function removeTask(id){
