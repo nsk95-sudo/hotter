@@ -161,6 +161,14 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
   <h2>ユーザー管理</h2>
   <p class="empty">新しく登録した人は「承認待ち」です。役割を選んで保存すると、使えるようになります。「業者」は、工事の担当と同じ名前を入れると、その担当の工事だけ見られます。</p>
   <div id="userList"></div>
+  <h2 style="margin-top:28px">データのバックアップ</h2>
+  <p class="empty" style="text-align:left">全物件と全工事を、1つのファイル(.json)に保存します。月に1回くらい保存して、iPadの「ファイル」やDropboxに置いておくと安心です。ユーザーの登録は含みません。</p>
+  <p class="empty" id="bkLast" style="text-align:left"></p>
+  <button type="button" class="primary" id="bkSave">バックアップを保存</button>
+  <h3 style="margin-top:20px;font-size:1rem">バックアップから戻す</h3>
+  <p class="empty" style="text-align:left">保存したファイルを選ぶと、その中の物件と工事を書き戻します。今ある物件や工事は消しません(同じものは、ファイルの内容で上書きします)。</p>
+  <input type="file" id="bkFile" accept=".json,application/json">
+  <p class="status" id="bkMsg"></p>
 </section>
 <main id="appMain" hidden>
   <div class="props">
@@ -489,6 +497,37 @@ function applyData(){
 try{onlyMine=localStorage.getItem("koutei-mine")==="1"}catch(e){}
 $("mineChk").onchange=()=>{onlyMine=$("mineChk").checked;try{localStorage.setItem("koutei-mine",onlyMine?"1":"0")}catch(e){}applyData()};
 $("pvSel").onchange=()=>{previewAs=$("pvSel").value;if(!previewAs)$("status").textContent="共有中:変更は全員に反映されます";applyData()};
+// ---- バックアップ ----
+function bkLastShow(){let v="";try{v=localStorage.getItem("koutei-bk")||""}catch(e){}$("bkLast").textContent=v?"この端末で最後に保存した日:"+v:"この端末では、まだ保存していません"}
+bkLastShow();
+$("bkSave").onclick=async()=>{
+  if(!dl){$("bkMsg").textContent="この画面では保存できません";return}
+  const strip=a=>a.map(x=>JSON.parse(JSON.stringify(x)));
+  const data={app:"koutei",ver:1,at:new Date().toISOString(),props:strip(rawProps.length?rawProps:props),tasks:strip(rawTasks.length?rawTasks:tasks),settings:{reformToken:reformTok||"",notifyToken:notifyTok||""}};
+  const day=ymd(new Date());
+  try{
+    await dl.save({filename:"工程バックアップ_"+day+".json",data:new Blob([JSON.stringify(data,null,1)],{type:"application/json"})});
+    try{localStorage.setItem("koutei-bk",day)}catch(e){}
+    bkLastShow();$("bkMsg").textContent="保存しました(物件"+data.props.length+"件、工事"+data.tasks.length+"件)";
+  }catch(e){$("bkMsg").textContent="保存できませんでした"}
+};
+$("bkFile").onchange=async()=>{
+  const f=$("bkFile").files[0];if(!f)return;
+  let d;try{d=JSON.parse(await f.text())}catch(e){$("bkMsg").textContent="ファイルを読めませんでした";$("bkFile").value="";return}
+  if(!d||d.app!=="koutei"||!Array.isArray(d.props)||!Array.isArray(d.tasks)){$("bkMsg").textContent="工程のバックアップのファイルではないようです";$("bkFile").value="";return}
+  if(!confirm((d.at||"").slice(0,10)+" のバックアップから、物件"+d.props.length+"件、工事"+d.tasks.length+"件を書き戻します。今ある同じ物件・工事は、ファイルの内容で上書きされます。よろしいですか?")){$("bkFile").value="";return}
+  if(!propsRef||!tasksRef){$("bkMsg").textContent="共有データにつながっていないため、戻せません";return}
+  let n=0,ng=0;const all=d.props.length+d.tasks.length;
+  for(const [ref,list] of [[propsRef,d.props],[tasksRef,d.tasks]]){
+    for(const x of list){
+      if(!x||!x.id)continue;const {id,...body}=x;
+      try{await ref.doc(id).set(body)}catch(e){ng++}
+      n++;if(n%20===0)$("bkMsg").textContent="書き戻し中… "+n+" / "+all;
+    }
+  }
+  $("bkFile").value="";
+  $("bkMsg").textContent="書き戻しました("+(n-ng)+"件)"+(ng?"。"+ng+"件は書き戻せませんでした":"");
+};
 // ---- カレンダー購読(自動更新) ----
 const FEED_BASE="https://koutei-feed.nsk95.workers.dev";
 let onlyMine=false,vendorMode=false,vendorNm="",notifyTok="",rawProps=[],rawTasks=[],previewAs="",realWrite=true,settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
