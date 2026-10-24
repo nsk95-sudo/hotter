@@ -369,6 +369,8 @@ function isOff(k,p){
   return o.wd.includes(wd)||(o.hol&&!!holName(k))||o.dates.includes(k);
 }
 const propOf=t=>props.find(p=>p.id===t.propId);
+const tint=(h,a)=>{const m=/^#?([0-9a-f]{6})$/i.exec(h||"");if(!m)return "";const n=parseInt(m[1],16);return "rgba("+(n>>16)+","+(n>>8&255)+","+(n&255)+","+a+")"};
+const ptint=t=>{const q=propOf(t);return q?pcol(q):"#718096"};
 const pcol=p=>p.color||COLORS[Math.max(props.findIndex(x=>x.id===p.id),0)%COLORS.length];
 const VC=["#1d7a6c","#2b6cb0","#c05621","#97266d","#5a67d8","#b7791f","#2f855a","#c53030","#6b46c1","#0987a0","#8a6d3b","#d53f8c"];
 const vcol=n=>{if(!n)return "#718096";let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))>>>0;return VC[h%VC.length]};
@@ -671,7 +673,7 @@ function renderGrid(){
     const n=document.createElement("span");n.className="n";n.textContent=d.getDate();b.appendChild(n);
     const hd=handsOn(key),day=ct.filter(t=>onDay(t,key)).sort((a,b)=>(!!a.flex)-(!!b.flex));
     hd.forEach(h=>{const c=document.createElement("span");c.className="chip hand";c.textContent=cur===ALL?"引渡予定:"+h.name:"引き渡し予定";b.appendChild(c)});
-    day.slice(0,7).forEach(t=>{const c=document.createElement("span");c.className="chip";c.style.background=tcol(t);c.textContent=t.name;if(t.kind==="meeting"){c.className="chip meet";c.style.background="";c.textContent="◇ "+t.name}else if(t.flex){c.className="chip flex";c.style.background="";c.style.borderColor=tcol(t);c.textContent="調整中:"+t.name}b.appendChild(c)});
+    day.slice(0,7).forEach(t=>{const c=document.createElement("span");c.className="chip";c.style.background=tcol(t);c.textContent=t.name;if(t.kind==="meeting"){const pc=ptint(t);c.className="chip meet";c.style.background="";c.style.backgroundColor=tint(pc,.22);c.style.borderColor=pc;c.textContent="◇ "+t.name}else if(t.flex){const pc=ptint(t);c.className="chip flex";c.style.background="";c.style.backgroundColor=tint(pc,.22);c.style.borderColor=pc;c.textContent="調整中:"+t.name}b.appendChild(c)});
     if(day.length>7){const m=document.createElement("span");m.className="more";m.textContent=`ほか${day.length-7}件`;b.appendChild(m)}
     b.onclick=()=>{sel=key;closeForm();render()};
     g.appendChild(b);
