@@ -785,8 +785,8 @@ $("fAttAdd").onclick=()=>{const v=$("fAttNew").value.trim();if(!v)return;attSel.
 function setFlex(){
   const meet=$("fKind").value==="meeting",f=$("fFlex").checked&&!meet;
   $("fFlex").parentElement.hidden=meet;$("fFlexBox").hidden=!f;
-  $("fAll").parentElement.hidden=f||meet;$("fSkip").parentElement.hidden=f;
-  $("fTimes").hidden=f||meet||$("fAll").checked;
+  $("fAll").parentElement.hidden=f;$("fSkip").parentElement.hidden=f||meet;
+  $("fTimes").hidden=f||$("fAll").checked;
 }
 $("fFlex").onchange=setFlex;$("fKind").addEventListener("change",setFlex);$("fAll").addEventListener("change",setFlex);
 function endFor(t,st){let z=st;for(let i=1;i<(t.need||1)&&z<t.end;i++)z=dayAfter(z);return z}
