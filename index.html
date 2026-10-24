@@ -679,29 +679,54 @@ function renderGrid(){
     g.appendChild(b);
   }
 }
+function ganttRange(){
+  const cp=curProp(),ts=curTasks().filter(t=>t.kind!=="meeting");
+  const addD=(k,n)=>{const [y,m,d]=k.split("-").map(Number);return ymd(new Date(y,m-1,d+n))};
+  let f=cp&&cp.start?cp.start:"",e=cp&&cp.handover?cp.handover:"";
+  if(!f&&ts.length)f=ts.reduce((m,t)=>t.start<m?t.start:m,ts[0].start);
+  if(!e&&ts.length)e=ts.reduce((m,t)=>t.end>m?t.end:m,ts[0].end);
+  if(!f||!e){const y=view.getFullYear(),m=view.getMonth();return [ymd(new Date(y,m,1)),ymd(new Date(y,m+1,0))]}
+  if(e<f)[f,e]=[e,f];
+  f=addD(f,-7);e=addD(e,7);
+  if((Date.parse(e)-Date.parse(f))/864e5>400)e=addD(f,400);
+  return [f,e];
+};
 function renderGantt(){
-  const y=view.getFullYear(),m=view.getMonth(),n=new Date(y,m+1,0).getDate();
-  const first=ymd(new Date(y,m,1)),last=ymd(new Date(y,m,n)),today=ymd(new Date()),cp=curProp();
+  const today=ymd(new Date()),cp=curProp();
   const box=$("gantt");box.innerHTML="";
   if(cur===ALL){const pp=document.createElement("p");pp.className="empty";pp.style.padding="16px";pp.textContent="横棒の工程表は、物件を選んで表示します。";box.appendChild(pp);return}
   const types=typesOf();
   if(!types.length){const p=document.createElement("p");p.className="empty";p.style.padding="16px";p.textContent="工事がまだありません。下の「工事を追加」から最初の工事を登録してください。";box.appendChild(p);return}
+  const [first,last]=ganttRange(),days=[];
+  for(let k=first;k<=last;k=dayAfter(k))days.push(k);
+  const n=days.length,T0=Date.parse(first),di=k=>Math.round((Date.parse(k)-T0)/864e5);
+  $("title").textContent=first.slice(0,4)+"年"+(+first.slice(5,7))+"/"+(+first.slice(8))+" 〜 "+(+last.slice(5,7))+"/"+(+last.slice(8));
   const inner=document.createElement("div");inner.className="gin";inner.style.width=(84+n*W+1)+"px";
+  // 月の行
+  const mr=document.createElement("div");mr.className="grow";
+  const m0=document.createElement("div");m0.className="gname";m0.textContent="";mr.appendChild(m0);
+  const mdays=document.createElement("div");mdays.className="gdays";
+  let i0=0;
+  days.forEach((k,i)=>{
+    const endM=i===n-1||days[i+1].slice(8)==="01";
+    if(endM){const sp=document.createElement("span");sp.style.width=((i-i0+1)*W)+"px";sp.style.textAlign="left";sp.style.paddingLeft="4px";sp.style.boxSizing="border-box";sp.style.fontWeight="600";sp.style.color="var(--ink)";sp.style.borderLeft="1px solid var(--line)";sp.style.whiteSpace="nowrap";sp.style.overflow="hidden";sp.textContent=(i-i0+1)>=3?(+days[i0].slice(5,7))+"月":"";mdays.appendChild(sp);i0=i+1}
+  });
+  mr.appendChild(mdays);inner.appendChild(mr);
   const hr=document.createElement("div");hr.className="grow";
   const h0=document.createElement("div");h0.className="gname";h0.textContent="工事種別";hr.appendChild(h0);
-  const days=document.createElement("div");days.className="gdays";
-  for(let d=1;d<=n;d++){
-    const dt=new Date(y,m,d),sp=document.createElement("span");
-    const kk=ymd(dt);sp.textContent=d;sp.className=(dt.getDay()===0?"su":dt.getDay()===6?"sa":"")+(holName(kk)?" hol":"")+(isOff(kk,cp)?" off":"")+(cp&&cp.handover===kk?" hand":"")+(kk===today?" today":"");
-    days.appendChild(sp);
-  }
-  hr.appendChild(days);inner.appendChild(hr);
+  const dd=document.createElement("div");dd.className="gdays";
+  days.forEach(kk=>{
+    const dt=new Date(+kk.slice(0,4),+kk.slice(5,7)-1,+kk.slice(8)),sp=document.createElement("span");
+    sp.textContent=+kk.slice(8);sp.className=(dt.getDay()===0?"su":dt.getDay()===6?"sa":"")+(holName(kk)?" hol":"")+(isOff(kk,cp)?" off":"")+(cp&&cp.handover===kk?" hand":"")+(kk===today?" today":"");
+    dd.appendChild(sp);
+  });
+  hr.appendChild(dd);inner.appendChild(hr);
   types.forEach(ty=>{
-    const items=curTasks().filter(t=>(t.type||"その他")===ty&&t.start<=last&&t.end>=first).sort((a,b)=>a.start<b.start?-1:a.start>b.start?1:0);
+    const items=curTasks().filter(t=>(t.type||"その他")===ty&&t.kind!=="meeting"&&t.start<=last&&t.end>=first).sort((a,b)=>a.start<b.start?-1:a.start>b.start?1:0);
     const lanes=[],placed=[];
     items.forEach(t=>{
       const s=t.start<first?first:t.start,e=t.end>last?last:t.end;
-      const left=(dn(s)-1)*W,bw=(dn(e)-dn(s)+1)*W,end=Math.max(left+bw,left+t.name.length*12+8);
+      const left=di(s)*W,bw=(di(e)-di(s)+1)*W,end=Math.max(left+bw,left+t.name.length*12+8);
       let i=lanes.findIndex(x=>x<=left);if(i<0){i=lanes.length;lanes.push(0)}
       lanes[i]=end;placed.push({t,i,s,left,bw,sg:segs(t,propOf(t)).map(a=>[a[0]<first?first:a[0],a[1]>last?last:a[1]]).filter(a=>a[0]<=a[1])});
     });
@@ -709,10 +734,9 @@ function renderGantt(){
     const nm=document.createElement("div");nm.className="gname";nm.textContent=ty;row.appendChild(nm);
     const area=document.createElement("div");area.className="garea";
     area.style.width=(n*W)+"px";area.style.height=(Math.max(lanes.length,1)*44+6)+"px";
-    for(let d=1;d<=n;d++){if(isOff(ymd(new Date(y,m,d)),cp)){const o=document.createElement("div");o.className="goff";o.style.left=((d-1)*W)+"px";area.appendChild(o)}}
-    const hp=curProp();
-    if(hp&&hp.handover&&hp.handover>=first&&hp.handover<=last){const hl=document.createElement("div");hl.className="ghand";hl.style.left=((dn(hp.handover)-1)*W)+"px";area.appendChild(hl)}
-    if(today>=first&&today<=last){const td=document.createElement("div");td.className="gtoday";td.style.left=((dn(today)-1)*W)+"px";area.appendChild(td)}
+    days.forEach((k,i)=>{if(isOff(k,cp)){const o=document.createElement("div");o.className="goff";o.style.left=(i*W)+"px";area.appendChild(o)}});
+    if(cp&&cp.handover&&cp.handover>=first&&cp.handover<=last){const hl=document.createElement("div");hl.className="ghand";hl.style.left=(di(cp.handover)*W)+"px";area.appendChild(hl)}
+    if(today>=first&&today<=last){const td=document.createElement("div");td.className="gtoday";td.style.left=(di(today)*W)+"px";area.appendChild(td)}
     placed.forEach(({t,i,s,left,bw,sg})=>{
       const tip=(t.flex?"[日程未定] ":"")+t.name+(t.who?"("+whoS(t)+")":"")+" "+t.start+"〜"+t.end+(t.flex?" のどこか":"");
       const lb=document.createElement("button");lb.type="button";lb.className="glab";
@@ -721,14 +745,20 @@ function renderGantt(){
       area.appendChild(lb);
       sg.forEach(([a,z])=>{
       const b=document.createElement("button");b.type="button";b.className="gbar";
-      b.style.left=((dn(a)-1)*W+1)+"px";b.style.width=((dn(z)-dn(a)+1)*W-2)+"px";b.style.top=(i*44+21)+"px";
-      {const wc=whoL(t).map(vcol),n=wc.length;b.style.background=n>1?"linear-gradient(to bottom,"+wc.map((c,i)=>c+" "+(i*100/n)+"% "+((i+1)*100/n)+"%").join(",")+")":vcol(t.who)}if(t.flex){const cc=vcol(t.who);b.style.background="repeating-linear-gradient(45deg,"+cc+" 0 5px,transparent 5px 10px)";b.style.border="2px dashed "+cc;b.style.boxSizing="border-box"}b.title=tip;b.setAttribute("aria-label",t.name);
+      b.style.left=(di(a)*W+1)+"px";b.style.width=((di(z)-di(a)+1)*W-2)+"px";b.style.top=(i*44+21)+"px";
+      {const wc=whoL(t).map(vcol),k=wc.length;b.style.background=k>1?"linear-gradient(to bottom,"+wc.map((c,j)=>c+" "+(j*100/k)+"% "+((j+1)*100/k)+"%").join(",")+")":vcol(t.who)}
+      if(t.flex){const cc=vcol(t.who);b.style.background="repeating-linear-gradient(45deg,"+cc+" 0 5px,transparent 5px 10px)";b.style.border="2px dashed "+cc;b.style.boxSizing="border-box"}
+      b.title=tip;b.setAttribute("aria-label",t.name);
       b.onclick=()=>{sel=s;renderDay()};
       area.appendChild(b);});
     });
     row.appendChild(area);inner.appendChild(row);
   });
-  box.appendChild(inner);const hq=curProp();if(hq&&hq.handover){const nt=document.createElement("p");nt.className="empty";nt.style.padding="6px 10px";nt.textContent="引き渡し予定:"+hq.handover.replace(/-/g,"/")+"(薄いオレンジの列)";box.appendChild(nt)}
+  box.appendChild(inner);
+  if(cp&&cp.handover){const nt=document.createElement("p");nt.className="empty";nt.style.padding="6px 10px";nt.textContent="引き渡し予定:"+cp.handover.replace(/-/g,"/")+"(薄いオレンジの列)";box.appendChild(nt)}
+  if(!(cp&&cp.start&&cp.handover)){const nt=document.createElement("p");nt.className="empty";nt.style.padding="0 10px 6px";nt.textContent="物件情報に着工日と引き渡し予定日を入れると、その1週間前〜1週間後を表示します";box.appendChild(nt)}
+  const key=cur+first;
+  if(box.dataset.k!==key){box.dataset.k=key;const tx=today>=first&&today<=last?di(today):0;requestAnimationFrame(()=>{box.scrollLeft=Math.max(0,tx*W-3*W)})}
 }
 function renderDay(){
   const [y,m,d]=sel.split("-").map(Number);
