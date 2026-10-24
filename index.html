@@ -80,6 +80,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
 .colors label{display:block}
 .colors input{position:absolute;opacity:0;width:0;height:0}
 .colors span{display:block;width:30px;height:30px;border-radius:50%;border:3px solid transparent}
+.pused{position:absolute;right:-2px;top:-2px;width:10px;height:10px;border-radius:50%;background:var(--ink);border:2px solid var(--surface)}
 .colors input:checked+span{border-color:var(--ink)}
 .colors input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
 .btns{display:flex;gap:8px}
@@ -337,6 +338,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
 </main>
 <script id="appjs" type="text/plain">
 const COLORS=["#1d7a6c","#2b6cb0","#b7791f","#c05621","#97266d","#5a67d8"];
+const PCOLORS=["#1d7a6c","#2b6cb0","#b7791f","#c05621","#97266d","#5a67d8","#2f855a","#c53030","#6b46c1","#0987a0","#8a6d3b","#d53f8c","#276749","#2c5282","#975a16","#9c4221","#702459","#434190","#38a169","#e53e3e","#805ad5","#00a3c4","#a0522d","#4a5568"];
 const LEG="_none",ALL="__all",GC="Google Calendar",W=26;
 const $=id=>document.getElementById(id);
 const pad=n=>String(n).padStart(2,"0");
@@ -400,7 +402,8 @@ const propOf=t=>props.find(p=>p.id===t.propId);
 const shortT=x=>x?String(x).replace(/^0(\d)/,"$1"):"",tpre=t=>t.allDay===false&&t.t1&&!t.flex?shortT(t.t1):"";
 const tint=(h,a)=>{const m=/^#?([0-9a-f]{6})$/i.exec(h||"");if(!m)return "";const n=parseInt(m[1],16);return "rgba("+(n>>16)+","+(n>>8&255)+","+(n&255)+","+a+")"};
 const ptint=t=>{const q=propOf(t);return q?pcol(q):"#718096"};
-const pcol=p=>p.color||COLORS[Math.max(props.findIndex(x=>x.id===p.id),0)%COLORS.length];
+const pcol=p=>p.color||PCOLORS[Math.max(props.findIndex(x=>x.id===p.id),0)%PCOLORS.length];
+function freeColor(){const used=props.filter(q=>!isDone(q)).map(pcol);return PCOLORS.find(c=>!used.includes(c))||PCOLORS[props.length%PCOLORS.length]}
 const VC=["#1d7a6c","#2b6cb0","#c05621","#97266d","#5a67d8","#b7791f","#2f855a","#c53030","#6b46c1","#0987a0","#8a6d3b","#d53f8c"];
 const vcol=n=>{if(!n)return "#718096";let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))>>>0;return VC[h%VC.length]};
 const mine=(t,n)=>!!n&&(hasWho(t,n)||(t.kind==="meeting"&&(t.mvend||[]).includes(n)));
@@ -1065,7 +1068,7 @@ const updInfo=part=>{const p=curProp();if(!p||p.id===LEG||cur===ALL)return;Objec
 function openInfo(){
   const p=curProp();if(!p)return;
   $("iName").value=p.name||"";$("iAddr").value=p.addr||"";$("iMap").value=p.mapUrl||"";$("iHand").value=p.handover||"";$("iStart").value=p.start||"";$("iKind").value=p.kind||"";$("iStage").value=stageOf(p);$("iZip").value=p.zip?p.zip.slice(0,3)+"-"+p.zip.slice(3):"";
-  document.querySelectorAll("#pcolors input").forEach(r=>r.checked=r.value===pcol(p));
+  markPcolors();
   $("iDrop").value=p.dropbox||"";$("iLtext").value=p.letterText||"";$("iLperiod").value=p.letterPeriod||"";$("iLdate").value=p.letterDate||"";$("iLseason").value=p.letterSeason||"";$("iMapZoom").value=String(p.mapZoom||17);$("iMapMark").checked=p.mapImgMark===true;$("mapPrev").hidden=true;mapStatRefresh();
   $("infoPanel").hidden=false;renderTypeOrder();feedRefresh();renderInsp();
 }
@@ -1123,12 +1126,19 @@ $("iZip").onchange=async()=>{
     if(!$("iAddr").value.trim()){const ad=a.address1+a.address2+a.address3;$("iAddr").value=ad;updInfo({addr:ad})}
   }catch(e){$("status").textContent="住所を取得できませんでした(手入力してください)"}
 };
-COLORS.forEach(c=>{
-  const l=document.createElement("label");
-  l.innerHTML=`<input type="radio" name="pcolor" value="${c}"><span style="background:${c}"></span>`;
-  const r=l.querySelector("input");r.setAttribute("aria-label","物件の色");r.onchange=()=>updInfo({color:c});
+PCOLORS.forEach(c=>{
+  const l=document.createElement("label");l.style.position="relative";
+  l.innerHTML=`<input type="radio" name="pcolor" value="${c}"><span style="background:${c}"></span><i class="pused" hidden></i>`;
+  const r=l.querySelector("input");r.setAttribute("aria-label","物件の色");r.onchange=()=>{updInfo({color:c});markPcolors()};
   $("pcolors").appendChild(l);
 });
+{const l=document.createElement("label");l.style.cssText="display:flex;align-items:center;gap:4px;font-size:.8rem";l.innerHTML=`<input type="color" id="pcolorCustom" style="position:static;opacity:1;width:34px;height:30px;padding:0;border:0;background:none"> ほかの色`;$("pcolors").appendChild(l);
+ $("pcolorCustom").onchange=()=>{updInfo({color:$("pcolorCustom").value});markPcolors()}}
+function markPcolors(){
+  const p=curProp();if(!p)return;const mine=pcol(p),used=props.filter(q=>q.id!==p.id&&!isDone(q)).map(pcol);
+  document.querySelectorAll("#pcolors label").forEach(l=>{const r=l.querySelector('input[type=radio]');if(!r)return;r.checked=r.value===mine;const i=l.querySelector(".pused");if(i)i.hidden=!used.includes(r.value)});
+  $("pcolorCustom").value=/^#[0-9a-f]{6}$/i.test(mine)?mine:"#1d7a6c";
+}
 COLORS.forEach((c,i)=>{
   const l=document.createElement("label");
   l.innerHTML=`<input type="radio" name="color" value="${c}"${i===0?" checked":""}><span style="background:${c}"></span>`;
@@ -1739,7 +1749,7 @@ $("pCancel").onclick=()=>{$("propForm").hidden=true};
 $("propForm").onsubmit=e=>{
   e.preventDefault();
   const name=$("pName").value.trim();if(!name)return;
-  const p={id:"p"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name,stage:$("pStage").value,types:[],ts:Date.now()};
+  const p={id:"p"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name,stage:$("pStage").value,color:freeColor(),types:[],ts:Date.now()};
   props.push(p);cur=p.id;$("pName").value="";$("pStage").value="contract";$("propForm").hidden=true;
   saveProp(p);render();
 };
