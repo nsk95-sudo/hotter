@@ -168,6 +168,10 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
   <button type="button" class="sync" id="hTabS" style="margin:0 0 8px">社内メンバー</button>
   <div id="histList"></div>
   <p class="status" id="histMsg"></p>
+  <h2 style="margin-top:28px">日程未定のまとめ通知</h2>
+  <p class="empty" style="text-align:left">毎週金曜の17時に、日程がまだ決まっていない工事の一覧を、LINEで送ります。送る社内メンバーを選んでください(LINEで名前を登録した人に届きます)。</p>
+  <div id="udList" style="display:flex;flex-wrap:wrap;gap:6px 14px"></div>
+  <p class="status" id="udMsg"></p>
   <h2 style="margin-top:28px">データのバックアップ</h2>
   <p class="empty" style="text-align:left">全物件と全工事を、1つのファイル(.json)に保存します。月に1回くらい保存して、iPadの「ファイル」やDropboxに置いておくと安心です。ユーザーの登録は含みません。</p>
   <p class="empty" id="bkLast" style="text-align:left"></p>
@@ -184,6 +188,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
     <button type="button" id="propAdd">＋物件</button>
     <button type="button" id="offBtn" hidden>休日設定</button>
     <button type="button" id="infoBtn" hidden>物件情報</button>
+    <button type="button" id="toolBtn" hidden>まとめて操作</button>
     <button type="button" id="propDel" hidden>物件を削除</button>
   </div>
   <form class="pf" id="propForm" hidden>
@@ -259,6 +264,27 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
     <div class="row2"><input type="date" id="offDate" aria-label="休工日"><button type="button" id="offAdd">休工日を追加</button></div>
     <div id="offList"></div>
     <button type="button" class="primary" id="offClose">閉じる</button>
+  </section>
+  <section class="panel" id="toolPanel" hidden>
+    <h2>工程をまとめて操作(この物件)</h2>
+    <h3 style="font-size:1rem;margin:10px 0 4px">前の物件の工程をコピー</h3>
+    <p class="empty" style="text-align:left;padding:2px 0">選んだ物件の工事の並びと日数を、この物件にコピーします。コピー元の最初の工事の日を、下の「この物件の開始日」に合わせて、日付をずらします。打ち合わせと定期点検は、コピーしません。</p>
+    <label class="fld">コピー元の物件<select id="cpFrom"></select></label>
+    <label class="fld">この物件の開始日<input type="date" id="cpStart"></label>
+    <label class="chk"><input type="checkbox" id="cpWho" checked style="width:auto"> 担当の業者もコピーする</label>
+    <label class="chk"><input type="checkbox" id="cpNote" style="width:auto"> メモもコピーする</label>
+    <p class="empty" id="cpInfo" style="text-align:left;padding:2px 0"></p>
+    <button type="button" class="primary" id="cpGo">コピーする</button>
+    <h3 style="font-size:1rem;margin:22px 0 4px">工程をまとめてずらす</h3>
+    <p class="empty" style="text-align:left;padding:2px 0">基準日以降に始まる工事を、まとめて前後にずらします。後ろへは「3」、前へは「-3」のように入れます。</p>
+    <div class="row2"><label class="fld">基準日<input type="date" id="shFrom"></label><label class="fld">ずらす日数<input type="number" id="shDays" value="1" inputmode="numeric"></label></div>
+    <label class="chk"><input type="checkbox" id="shWork" checked style="width:auto"> 休みの日は数えない(この物件の休日設定で数えます)</label>
+    <label class="chk"><input type="checkbox" id="shMeet" style="width:auto"> 打ち合わせもずらす</label>
+    <label class="chk"><input type="checkbox" id="shHand" checked style="width:auto"> 引き渡し予定日もずらす</label>
+    <p class="empty" id="shInfo" style="text-align:left;padding:2px 0"></p>
+    <button type="button" class="primary" id="shGo">ずらす</button>
+    <p class="status" id="toolMsg"></p>
+    <button type="button" class="sync" id="toolClose">閉じる</button>
   </section>
   <p class="empty" id="noProp" style="padding:16px 6px" hidden></p>
   <div id="body">
@@ -438,7 +464,7 @@ function twoStep(btn,fn){
     if(user){try{if(user.isVendor&&await user.isVendor()){vendorMode=true;vendorNm=await user.vendorName()}}catch(e){}}
     if(user){try{if(await user.isOwner()){const m=await claude.use("mcp");if(m){mcp=m;syncOn=true;gMsg("Googleカレンダーと連携中:あなたのカレンダーに登録されます");$("syncAll").hidden=false}}}catch(e){}}
     tasksRef=db.collection("tasks");propsRef=db.collection("props");settingsRef=db.collection("settings");
-    if(canWrite)settingsRef.onSnapshot(s=>{const h=s.docs.find(x=>x.id==="history");if(h){const hd=h.data();hist={types:hd.types||[],vendors:hd.vendors||[],staff:hd.staff||[]}}hLoaded=true;const d=s.docs.find(x=>x.id==="feeds");reformTok=d&&d.data().reformToken||"";notifyTok=d&&d.data().notifyToken||"";feedRefresh();feedSched()},()=>{});
+    if(canWrite)settingsRef.onSnapshot(s=>{const nd=s.docs.find(x=>x.id==="notify");udTo=nd&&nd.data().undecidedTo||[];const h=s.docs.find(x=>x.id==="history");if(h){const hd=h.data();hist={types:hd.types||[],vendors:hd.vendors||[],staff:hd.staff||[]}}hLoaded=true;const d=s.docs.find(x=>x.id==="feeds");reformTok=d&&d.data().reformToken||"";notifyTok=d&&d.data().notifyToken||"";feedRefresh();feedSched()},()=>{});
     propsRef.onSnapshot(s=>{props=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));pLoaded=true;rawProps=props;applyData();feedSched()},()=>{});
     tasksRef.onSnapshot(s=>{
       tasks=s.docs.map(d=>({id:d.id,...d.data()}));rawTasks=tasks;
@@ -532,7 +558,15 @@ function renderHist(){
   });
 }
 $("hTabT").onclick=()=>{hTab="t";renderHist()};$("hTabV").onclick=()=>{hTab="v";renderHist()};$("hTabS").onclick=()=>{hTab="s";renderHist()};
-$("btnUsers").addEventListener("click",()=>setTimeout(renderHist,0));
+$("btnUsers").addEventListener("click",()=>setTimeout(()=>{renderHist();renderUd()},0));
+function renderUd(){
+  const box=$("udList");if(!box)return;box.innerHTML="";
+  const names=allStaff();
+  if(!names.length){const e=document.createElement("span");e.className="empty";e.textContent="社内メンバーの名前がまだありません(打ち合わせの同席者に入れると出てきます)";box.appendChild(e);return}
+  names.forEach(n=>{const l=document.createElement("label");l.className="chk";l.style.margin="0";const c=document.createElement("input");c.type="checkbox";c.style.width="auto";c.checked=udTo.includes(n);
+    c.onchange=async()=>{const v=[...box.querySelectorAll("input:checked")].map(x=>x.parentElement.textContent.trim());try{await settingsRef.doc("notify").set({undecidedTo:v});udTo=v;$("udMsg").textContent="保存しました"}catch(e){$("udMsg").textContent="保存できませんでした"}};
+    l.append(c,document.createTextNode(" "+n));box.appendChild(l)});
+}
 async function histSave(){if(settingsRef)await settingsRef.doc("history").set({types:hist.types,vendors:hist.vendors,staff:hist.staff})}
 async function histDelete(kind,n){
   if(!settingsRef||!propsRef)return;
@@ -601,7 +635,7 @@ $("bkFile").onchange=async()=>{
 };
 // ---- カレンダー購読(自動更新) ----
 const FEED_BASE="https://koutei-feed.nsk95.workers.dev";
-let hist={types:[],vendors:[],staff:[]},hLoaded=false,onlyMine=false,vendorMode=false,vendorNm="",notifyTok="",rawProps=[],rawTasks=[],previewAs="",realWrite=true,settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
+let udTo=[],hist={types:[],vendors:[],staff:[]},hLoaded=false,onlyMine=false,vendorMode=false,vendorNm="",notifyTok="",rawProps=[],rawTasks=[],previewAs="",realWrite=true,settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
 const feedUrl=p=>p&&p.feedToken&&FEED_BASE?FEED_BASE.replace(/\/$/,"")+"/"+p.feedToken+".ics":"";
 function feedSched(){if(!canWrite||!propsRef||!pLoaded||!tLoaded)return;clearTimeout(feedT);feedT=setTimeout(feedPush,2500)}
 async function feedPush(){
@@ -777,7 +811,7 @@ function render(){
   s.hidden=!l.length;
   $("propAdd").hidden=!canWrite;
   const real=canWrite&&cur&&cur!==LEG&&cur!==ALL;
-  $("offBtn").hidden=!real;$("infoBtn").hidden=!real;$("pdfBtn").hidden=!dl;
+  $("offBtn").hidden=!real;$("infoBtn").hidden=!real;$("toolBtn").hidden=!real;$("pdfBtn").hidden=!dl;
   if(!$("offPanel").hidden)renderOff();
   $("propDel").hidden=!(canWrite&&cur&&cur!==LEG&&cur!==ALL&&!curTasks().length);
   $("body").hidden=!cur;
@@ -1734,6 +1768,71 @@ function renderOff(){
 }
 $("offBtn").onclick=()=>{$("offPanel").hidden=!$("offPanel").hidden;if(!$("offPanel").hidden)renderOff()};
 $("offClose").onclick=()=>{$("offPanel").hidden=true};
+// ---- まとめて操作 ----
+const addD=(k,n)=>{const [y,m,d]=k.split("-").map(Number);return ymd(new Date(y,m-1,d+n))};
+const dDiff=(a,b)=>Math.round((Date.parse(b)-Date.parse(a))/864e5);
+const cpSrc=pid=>tasks.filter(t=>(t.propId||LEG)===pid&&t.kind!=="meeting"&&t.type!=="定期点検");
+function openTool(){
+  const p=curProp();if(!p)return;
+  const sel2=$("cpFrom");sel2.innerHTML="";
+  props.filter(q=>q.id!==p.id).map(q=>[q,cpSrc(q.id).length]).filter(([q,n])=>n).forEach(([q,n])=>{const o=document.createElement("option");o.value=q.id;o.textContent=q.name+"("+n+"件)"+(isDone(q)?" 引き渡し済み":"");sel2.appendChild(o)});
+  if(!sel2.options.length){const o=document.createElement("option");o.value="";o.textContent="コピーできる物件がありません";sel2.appendChild(o)}
+  $("cpStart").value=p.start||sel;$("shFrom").value=sel;
+  cpInfo();shInfo();$("toolMsg").textContent="";
+  $("toolPanel").hidden=false;
+}
+function cpInfo(){
+  const p=curProp(),sid=$("cpFrom").value,src=sid?cpSrc(sid):[];
+  if(!src.length){$("cpInfo").textContent="";return}
+  const s0=src.reduce((m,t)=>t.start<m?t.start:m,src[0].start),e0=src.reduce((m,t)=>t.end>m?t.end:m,src[0].end),st=$("cpStart").value;
+  const have=curTasks().filter(t=>t.kind!=="meeting").length;
+  $("cpInfo").textContent=src.length+"件の工事をコピーします"+(st?"(この物件では "+st.slice(5).replace("-","/")+" 〜 "+addD(e0,dDiff(s0,st)).slice(5).replace("-","/")+")":"")+(have?"。この物件の今の工事"+have+"件は、そのまま残ります":"");
+}
+$("cpFrom").onchange=cpInfo;$("cpStart").onchange=cpInfo;
+$("cpGo").onclick=async()=>{
+  const p=curProp(),sid=$("cpFrom").value,st=$("cpStart").value;if(!p||!sid)return;
+  if(!st){$("toolMsg").textContent="この物件の開始日を入れてください";return}
+  const src=cpSrc(sid).sort((a,b)=>a.start<b.start?-1:a.start>b.start?1:0);if(!src.length)return;
+  const sp=props.find(q=>q.id===sid),s0=src[0].start,off=dDiff(s0,st);
+  if(!confirm((sp?sp.name:"")+"の工事"+src.length+"件を、この物件にコピーします。よろしいですか?"))return;
+  const withWho=$("cpWho").checked,withNote=$("cpNote").checked;
+  const ty=uniq([...(p.types||[]),...((sp&&sp.types)||[]).filter(x=>src.some(t=>(t.type||"その他")===x)),...src.map(t=>t.type||"その他")]);
+  updInfo({types:ty});
+  let n=0;
+  for(const t of src){
+    const id="t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    await saveTask({id,propId:p.id,kind:"work",type:t.type||"その他",name:t.name,who:withWho?t.who||"":"",who2:withWho?t.who2||"":"",who3:withWho?t.who3||"":"",start:addD(t.start,off),end:addD(t.end,off),color:t.color||COLORS[0],note:withNote?t.note||"":"",allDay:t.allDay!==false,t1:t.t1||"08:00",t2:t.t2||"17:00",skipOff:!!t.skipOff,attendees:[],mvend:[],flex:!!t.flex,need:t.need||0},null);
+    n++;if(n%5===0)$("toolMsg").textContent="コピー中… "+n+" / "+src.length;
+  }
+  $("toolMsg").textContent=n+"件の工事をコピーしました。業者や日付は、1件ずつ直せます";cpInfo();
+};
+function shiftK(k,n,p,work){
+  if(!work)return addD(k,n);
+  let d=k,c=Math.abs(n);const st=n>0?1:-1;
+  while(c>0){d=addD(d,st);if(!isOff(d,p))c--}
+  return d;
+}
+const shTargets=()=>{const b=$("shFrom").value;return b?curTasks().filter(t=>t.start>=b&&t.type!=="定期点検"&&($("shMeet").checked||t.kind!=="meeting")):[]};
+function shInfo(){
+  const n=parseInt($("shDays").value,10),ts=shTargets(),p=curProp();
+  $("shInfo").textContent=!$("shFrom").value?"基準日を入れてください":!n?"ずらす日数を入れてください":ts.length+"件の工事を"+(n>0?n+"日後ろ":(-n)+"日前")+"へずらします"+($("shHand").checked&&p&&p.handover&&p.handover>=$("shFrom").value?"。引き渡し予定日もずらします":"");
+}
+["shFrom","shDays","shWork","shMeet","shHand"].forEach(id=>{$(id).addEventListener("change",shInfo);$(id).addEventListener("input",shInfo)});
+$("shGo").onclick=async()=>{
+  const p=curProp(),n=parseInt($("shDays").value,10),ts=shTargets(),work=$("shWork").checked;if(!p)return;
+  if(!n||!ts.length){shInfo();return}
+  if(!confirm(ts.length+"件の工事を、"+(n>0?n+"日後ろ":(-n)+"日前")+"へずらします。よろしいですか?"))return;
+  let k=0,ng=0;
+  for(const t of ts){
+    const ns=shiftK(t.start,n,p,work),ne=t.end===t.start?ns:shiftK(t.end,n,p,work);
+    try{if(tasksRef)await tasksRef.doc(t.id).update({start:ns,end:ne<ns?ns:ne});else await saveTask({...t,start:ns,end:ne<ns?ns:ne},t)}catch(e){ng++}
+    k++;if(k%5===0)$("toolMsg").textContent="ずらしています… "+k+" / "+ts.length;
+  }
+  if($("shHand").checked&&p.handover&&p.handover>=$("shFrom").value)updInfo({handover:shiftK(p.handover,n,p,work)});
+  $("toolMsg").textContent=(k-ng)+"件の工事をずらしました"+(ng?"("+ng+"件はずらせませんでした)":"");shInfo();
+};
+$("toolBtn").onclick=()=>{if($("toolPanel").hidden)openTool();else $("toolPanel").hidden=true};
+$("toolClose").onclick=()=>{$("toolPanel").hidden=true};
 $("offHol").onchange=()=>updOff({hol:$("offHol").checked});
 $("offAdd").onclick=()=>{
   const v=$("offDate").value,p=curProp();if(!v||!p)return;
@@ -1743,7 +1842,7 @@ $("offAdd").onclick=()=>{
 
 // ---- 物件 ----
 $("showDone").onchange=()=>{showDone=$("showDone").checked;try{localStorage.setItem("koutei-done",showDone?"1":"0")}catch(e){}render()};
-$("prop").onchange=()=>{cur=$("prop").value;$("offPanel").hidden=true;$("infoPanel").hidden=true;$("pdfPanel").hidden=true;closeForm();render()};
+$("prop").onchange=()=>{cur=$("prop").value;$("offPanel").hidden=true;$("toolPanel").hidden=true;$("infoPanel").hidden=true;$("pdfPanel").hidden=true;closeForm();render()};
 $("propAdd").onclick=()=>{$("propForm").hidden=false;$("pName").focus()};
 $("pCancel").onclick=()=>{$("propForm").hidden=true};
 $("propForm").onsubmit=e=>{
