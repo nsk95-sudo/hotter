@@ -205,6 +205,8 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
     <label class="fld">住所<input id="iAddr" maxlength="100" placeholder="例:東京都○○区1-2-3"></label>
     <label class="fld">GoogleマップのURL(空欄なら住所から自動で作ります)<input id="iMap" type="url" maxlength="300" placeholder="https://maps.app.goo.gl/..."></label>
     <label class="fld">段階<select id="iStage"><option value="sales">接客中</option><option value="contract">契約済み(工事中)</option><option value="done">引き渡し済み</option><option value="lost">見送り</option></select></label>
+    <label class="fld">業者への公開<select id="iVpub"><option value="on">公開する</option><option value="auto">着工日の1週間前から公開する</option><option value="off">公開しない</option></select></label>
+    <p class="empty" id="iVpubNote" style="text-align:left;padding:0 0 6px"></p>
     <label class="fld">工事の種類<select id="iKind"><option value="">未選択</option><option value="new">新築</option><option value="reform">リフォーム</option></select></label>
     <label class="fld">着工日<input id="iStart" type="date"></label>
     <label class="fld">引き渡し予定日<input id="iHand" type="date"></label>
@@ -380,6 +382,7 @@ const propList=()=>{const l=props.slice();if(tasks.some(t=>!t.propId))l.push({id
 const curTasks=()=>cur===ALL?tasks.slice():tasks.filter(t=>(t.propId||LEG)===cur);
 const curProp=()=>propList().find(p=>p.id===cur);
 let showDone=false;try{showDone=localStorage.getItem("koutei-done")==="1"}catch(e){}
+const vHidden=p=>{if(!p)return false;const v=p.vpub||"on";if(v==="off")return true;if(v==="auto"){if(!p.start)return true;const d=new Date(p.start+"T00:00:00");d.setDate(d.getDate()-7);return ymd(new Date())<ymd(d)}return false};
 const stageOf=p=>(p&&p.stage)||"contract";
 const isDone=p=>{if(!p||p.id===LEG)return false;const st=stageOf(p);return st==="done"||st==="lost"||(st==="contract"&&!!p.handover&&p.handover<ymd(new Date()))};
 function ensureCur(){const l=propList();if(!l.length){cur="";return}if(!cur)cur=ALL;if(cur!==ALL&&!l.find(p=>p.id===cur))cur=ALL}
@@ -524,7 +527,7 @@ function applyData(){
   if(previewAs){
     const m={};
     const pids=new Set(rawTasks.filter(t=>hasWho(t,previewAs)&&t.kind!=="meeting").map(t=>t.propId||""));
-    tasks=rawTasks.filter(t=>(t.kind!=="meeting"&&pids.has(t.propId||""))||(t.kind==="meeting"&&(t.mvend||[]).includes(previewAs)));
+    tasks=rawTasks.filter(t=>(t.kind!=="meeting"&&pids.has(t.propId||"")&&!vHidden(rawProps.find(q=>q.id===t.propId)))||(t.kind==="meeting"&&(t.mvend||[]).includes(previewAs)));
     tasks.forEach(t=>{if(t.propId&&!m[t.propId])m[t.propId]={id:t.propId,name:t.propName||"物件",addr:t.propAddr||"",mapUrl:t.propMap||"",dropbox:t.propDrop||"",types:[],ts:0}});
     if(onlyMine)tasks=tasks.filter(t=>mine(t,previewAs));
     props=Object.values(m);canWrite=false;
@@ -656,8 +659,9 @@ async function feedPush(){
     const vm={};
     tasks.forEach(t=>{if(t.kind!=="meeting"&&t.who){const k=t.propId||"";whoL(t).forEach(w=>(vm[k]=vm[k]||new Set()).add(w))}});
     for(const t of tasks){
-      const want=t.kind==="meeting"?[...new Set(t.mvend||[])].sort():[...(vm[t.propId||""]||[])].sort();
-      if(JSON.stringify(want)!==JSON.stringify(t.viewers||[])){try{await tasksRef.doc(t.id).update({viewers:want})}catch(e){}}
+      const hid=t.kind!=="meeting"&&vHidden(propOf(t));
+      const want=t.kind==="meeting"?[...new Set(t.mvend||[])].sort():hid?[]:[...(vm[t.propId||""]||[])].sort();
+      if(JSON.stringify(want)!==JSON.stringify(t.viewers||[])||!!t.vhide!==hid){try{await tasksRef.doc(t.id).update({viewers:want,vhide:hid})}catch(e){}}
     }
     for(const t of tasks){
       if(t.kind==="meeting"||!t.skipOff||t.flex)continue;
@@ -1101,7 +1105,7 @@ function renderTypeOrder(){
 const updInfo=part=>{const p=curProp();if(!p||p.id===LEG||cur===ALL)return;Object.assign(p,part);saveProp(p);if(tasksRef&&("name" in part||"addr" in part||"mapUrl" in part||"dropbox" in part))tasks.filter(t=>t.propId===p.id).forEach(t=>{const {id,...bb}=t;bb.propName=p.name;bb.propAddr=p.addr||"";bb.propMap=p.mapUrl||"";bb.propDrop=p.dropbox||"";tasksRef.doc(id).set(bb)});render()};
 function openInfo(){
   const p=curProp();if(!p)return;
-  $("iName").value=p.name||"";$("iAddr").value=p.addr||"";$("iMap").value=p.mapUrl||"";$("iHand").value=p.handover||"";$("iStart").value=p.start||"";$("iKind").value=p.kind||"";$("iStage").value=stageOf(p);$("iZip").value=p.zip?p.zip.slice(0,3)+"-"+p.zip.slice(3):"";
+  $("iName").value=p.name||"";$("iAddr").value=p.addr||"";$("iMap").value=p.mapUrl||"";$("iHand").value=p.handover||"";$("iStart").value=p.start||"";$("iKind").value=p.kind||"";$("iStage").value=stageOf(p);$("iVpub").value=p.vpub||"on";vpubNote();$("iZip").value=p.zip?p.zip.slice(0,3)+"-"+p.zip.slice(3):"";
   markPcolors();
   $("iDrop").value=p.dropbox||"";$("iLtext").value=p.letterText||"";$("iLperiod").value=p.letterPeriod||"";$("iLdate").value=p.letterDate||"";$("iLseason").value=p.letterSeason||"";$("iMapZoom").value=String(p.mapZoom||17);$("iMapMark").checked=p.mapImgMark===true;$("mapPrev").hidden=true;mapStatRefresh();
   $("infoPanel").hidden=false;renderTypeOrder();feedRefresh();renderInsp();
@@ -1146,6 +1150,8 @@ $("inspMake").onclick=async()=>{
 };
 $("iStart").onchange=()=>updInfo({start:$("iStart").value});
 $("iKind").onchange=()=>updInfo({kind:$("iKind").value});
+function vpubNote(){const p=curProp();if(!p)return;const v=p.vpub||"on";$("iVpubNote").textContent=v==="off"?"業者には、この物件の工事が見えず、LINEの通知も届きません(来てもらう業者に選んだ打ち合わせは除きます)":v==="auto"?(p.start?"着工日 "+p.start.replace(/-/g,"/")+" の1週間前("+addD(p.start,-7).replace(/-/g,"/")+")から公開します。それまでは業者に見えず、通知も届きません。いまは"+(vHidden(p)?"非公開":"公開中")+"です":"着工日を入れると、その1週間前から公開します。いまは非公開です"):"業者に、担当の工事がある物件として見えます";}
+$("iVpub").onchange=()=>{updInfo({vpub:$("iVpub").value});vpubNote();feedSched()};
 $("iStage").onchange=()=>{
   const v=$("iStage").value;updInfo({stage:v});
   if((v==="done"||v==="lost")&&!showDone){$("infoPanel").hidden=true;$("status").textContent=(v==="lost"?"見送り":"引き渡し済み")+"にしました。物件の一覧からは隠れます(「引き渡し済み・見送りも表示」で見られます)";}
@@ -1963,7 +1969,7 @@ setInterval(()=>{if(auth.currentUser)auth.currentUser.getIdToken(true).catch(()=
 function startApp(u,role,vendorName){
   if(started)return;started=true;startedUid=u.uid;
   const staff=role==="admin"||role==="member";
-  const tq=()=>role==="vendor"?query(collection(fs,"tasks"),or(where("who","==",vendorName),where("viewers","array-contains",vendorName))):collection(fs,"tasks");
+  const tq=()=>role==="vendor"?query(collection(fs,"tasks"),where("viewers","array-contains",vendorName)):collection(fs,"tasks");
   const wrap=s=>({docs:s.docs.map(d=>({id:d.id,data:()=>d.data()}))});
   const dbShim={collection:name=>({
     onSnapshot:(next,err)=>{
