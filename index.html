@@ -38,7 +38,7 @@ form.pf .ok{background:var(--accent);color:var(--accent-ink);border-color:var(--
 .wd{background:var(--surface);text-align:center;font-size:.75rem;padding:4px 0;color:var(--sub)}
 .wd.sa,.d.sa .n{color:var(--sat)}.wd.su,.d.su .n{color:var(--sun)}
 .d{background:var(--surface);min-height:172px;padding:2px;border:0;text-align:left;color:var(--ink);display:flex;flex-direction:column;gap:2px;min-width:0}
-.d.out{opacity:.4}.d.off{background:var(--off)}.d.hand{background:#ffe6c7;color:#1c2a27}.d.hand .n{color:#1c2a27}.d.hol .n{color:var(--sun)}.d.today{background:var(--today)}.d.sel{box-shadow:inset 0 0 0 2px var(--accent)}
+.d.out{opacity:.4}.d.off,.d.hol{background:var(--off)}.d.hand{background:#ffe6c7;color:#1c2a27}.d.hand .n{color:#1c2a27}.d.hol .n{color:var(--sun)}.d.today{background:var(--today)}.d.sel{box-shadow:inset 0 0 0 2px var(--accent)}
 .n{font-size:.72rem;padding-left:2px}
 .dh{display:flex;flex-wrap:wrap;align-items:baseline;gap:1px 3px}
 .ky{font-size:.55rem;color:var(--sub);white-space:nowrap}
@@ -57,7 +57,7 @@ form.pf .ok{background:var(--accent);color:var(--accent-ink);border-color:var(--
 .gname{position:sticky;left:0;z-index:2;flex:none;width:84px;padding:6px 8px;font-size:.8rem;font-weight:600;background:var(--surface);border-right:1px solid var(--line);overflow-wrap:anywhere}
 .gdays{display:flex}
 .gdays span{flex:none;width:26px;text-align:center;font-size:.65rem;color:var(--sub);padding:5px 0}
-.gdays .su{color:var(--sun)}.gdays .sa{color:var(--sat)}.gdays .hol{color:var(--sun)}.gdays .off{background:var(--off)}.gdays .today{background:var(--today)}
+.gdays .su{color:var(--sun)}.gdays .sa{color:var(--sat)}.gdays .hol{color:var(--sun);background:var(--off)}.gdays .off{background:var(--off)}.gdays .today{background:var(--today)}
 .garea{position:relative;flex:none;background-image:repeating-linear-gradient(to right,transparent 0,transparent 25px,var(--line) 25px,var(--line) 26px)}
 .goff{position:absolute;top:0;bottom:0;width:26px;background:var(--off)}
 .gtoday{position:absolute;top:0;bottom:0;width:26px;background:var(--today);opacity:.7}
@@ -176,6 +176,9 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
   <h2 style="margin-top:28px">日程未定のまとめ通知</h2>
   <p class="empty" style="text-align:left">毎週金曜の17時に、日程がまだ決まっていない工事の一覧を、LINEで送ります。送る社内メンバーを選んでください(LINEで名前を登録した人に届きます)。</p>
   <div id="udList" style="display:flex;flex-wrap:wrap;gap:6px 14px"></div>
+  <h3 style="margin-top:16px;font-size:1rem">LINE依頼の返事を受け取る社内メンバー</h3>
+  <p class="empty" style="text-align:left">業者がLINEの依頼に返事をしたとき(OK・相談希望・日程の確定)に、LINEで知らせます。</p>
+  <div id="rpList" style="display:flex;flex-wrap:wrap;gap:6px 14px"></div>
   <p class="status" id="udMsg"></p>
   <h2 style="margin-top:28px">データのバックアップ</h2>
   <p class="empty" style="text-align:left">全物件と全工事を、1つのファイル(.json)に保存します。月に1回くらい保存して、iPadの「ファイル」やDropboxに置いておくと安心です。ユーザーの登録は含みません。</p>
@@ -267,7 +270,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
   <section class="panel" id="offPanel" hidden>
     <h2>休日設定(この物件)</h2>
     <div class="wds" id="offWd" role="group" aria-label="休みの曜日"></div>
-    <label class="chk"><input type="checkbox" id="offHol"> 祝日を休みにする</label>
+    <label class="chk"><input type="checkbox" id="offHol"> 祝日を休みにする(チェックなしなら、祝日も工事をする日として扱います)</label>
     <div class="row2"><input type="date" id="offDate" aria-label="休工日"><button type="button" id="offAdd">休工日を追加</button></div>
     <div id="offList"></div>
     <button type="button" class="primary" id="offClose">閉じる</button>
@@ -364,6 +367,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
         <label class="chk"><input type="checkbox" id="fAll" checked style="width:auto"> 終日</label>
         <div class="row2" id="fTimes" hidden><label>開始時刻<input id="fT1" type="time" value="08:00"></label><label>終了時刻<input id="fT2" type="time" value="09:00"></label></div>
         <label class="chk"><input type="checkbox" id="fSkip" style="width:auto"> 休日は作業しない(休日を飛ばす)</label>
+        <label class="chk"><input type="checkbox" id="fSkipHol" style="width:auto"> 祝日も作業しない(祝日も飛ばす)</label>
         <div class="colors" id="colors" role="radiogroup" aria-label="色" hidden></div>
         <label>メモ<textarea id="fNote" rows="2" maxlength="200"></textarea></label>
         <div class="btns"><button type="button" id="cancel">キャンセル</button><button type="submit" class="ok">保存</button></div>
@@ -433,7 +437,7 @@ function holidays(y){
   return holCache[y]=h;
 }
 const holName=k=>holidays(+k.slice(0,4))[k]||"";
-function getOff(p){const o=(p&&p.off)||{};return {wd:o.wd||[0],hol:o.hol!==false,dates:o.dates||[]}}
+function getOff(p){const o=(p&&p.off)||{};return {wd:o.wd||[0],hol:o.hol===true,dates:o.dates||[]}}
 function isOff(k,p){
   const o=getOff(p),wd=new Date(+k.slice(0,4),+k.slice(5,7)-1,+k.slice(8)).getDay();
   return o.wd.includes(wd)||(o.hol&&!!holName(k))||o.dates.includes(k);
@@ -452,13 +456,14 @@ const tcol=t=>{const p=propOf(t);return cur===ALL&&p?pcol(p):vcol(t.who)};
 const handsOn=k=>(cur===ALL?props:[curProp()]).filter(p=>p&&p.handover===k);
 const mapLink=p=>{const u=(p&&p.mapUrl)||"";if(/^https?:\/\//i.test(u))return u;return p&&p.addr?"https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(p.addr):""};
 const segs=(t,p)=>{
-  if(t.flex||!t.skipOff)return [[t.start,t.end]];
+  if(t.flex||(!t.skipOff&&!t.skipHol))return [[t.start,t.end]];
   const out=[];let s=null,pv=null,k=t.start;
-  while(k<=t.end){if(isOff(k,p)){if(s){out.push([s,pv]);s=null}}else{if(!s)s=k;pv=k}k=dayAfter(k)}
+  while(k<=t.end){if(skipDay(t,k,p)){if(s){out.push([s,pv]);s=null}}else{if(!s)s=k;pv=k}k=dayAfter(k)}
   if(s)out.push([s,pv]);
   return out.length?out:[[t.start,t.end]];
 };
-const onDay=(t,k)=>t.start<=k&&k<=t.end&&!(t.skipOff&&isOff(k,propOf(t)));
+const skipDay=(t,k,p)=>!t.flex&&((t.skipOff&&isOff(k,p))||(t.skipHol&&!!holName(k)));
+const onDay=(t,k)=>t.start<=k&&k<=t.end&&!skipDay(t,k,propOf(t));
 const gMsg=m=>{$("gstatus").textContent=m};
 function twoStep(btn,fn){
   const o=btn.textContent;let armed=false,tm;
@@ -478,7 +483,7 @@ function twoStep(btn,fn){
     if(user){try{if(user.isVendor&&await user.isVendor()){vendorMode=true;vendorNm=await user.vendorName()}}catch(e){}}
     if(user){try{if(await user.isOwner()){const m=await claude.use("mcp");if(m){mcp=m;syncOn=true;gMsg("Googleカレンダーと連携中:あなたのカレンダーに登録されます");$("syncAll").hidden=false}}}catch(e){}}
     tasksRef=db.collection("tasks");propsRef=db.collection("props");settingsRef=db.collection("settings");
-    if(canWrite)settingsRef.onSnapshot(s=>{const nd=s.docs.find(x=>x.id==="notify");udTo=nd&&nd.data().undecidedTo||[];const h=s.docs.find(x=>x.id==="history");if(h){const hd=h.data();hist={types:hd.types||[],vendors:hd.vendors||[],staff:hd.staff||[]}}hLoaded=true;const d=s.docs.find(x=>x.id==="feeds");reformTok=d&&d.data().reformToken||"";notifyTok=d&&d.data().notifyToken||"";feedRefresh();feedSched()},()=>{});
+    if(canWrite)settingsRef.onSnapshot(s=>{const nd=s.docs.find(x=>x.id==="notify");udTo=nd&&nd.data().undecidedTo||[];rpTo=nd&&nd.data().replyTo||[];const h=s.docs.find(x=>x.id==="history");if(h){const hd=h.data();hist={types:hd.types||[],vendors:hd.vendors||[],staff:hd.staff||[]}}hLoaded=true;const d=s.docs.find(x=>x.id==="feeds");reformTok=d&&d.data().reformToken||"";notifyTok=d&&d.data().notifyToken||"";feedRefresh();feedSched()},()=>{});
     propsRef.onSnapshot(s=>{props=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));pLoaded=true;rawProps=props;applyData();feedSched()},()=>{});
     tasksRef.onSnapshot(s=>{
       tasks=s.docs.map(d=>({id:d.id,...d.data()}));rawTasks=tasks;
@@ -574,12 +579,14 @@ function renderHist(){
 $("hTabT").onclick=()=>{hTab="t";renderHist()};$("hTabV").onclick=()=>{hTab="v";renderHist()};$("hTabS").onclick=()=>{hTab="s";renderHist()};
 $("btnUsers").addEventListener("click",()=>setTimeout(()=>{renderHist();renderUd()},0));
 function renderUd(){
-  const box=$("udList");if(!box)return;box.innerHTML="";
   const names=allStaff();
-  if(!names.length){const e=document.createElement("span");e.className="empty";e.textContent="社内メンバーの名前がまだありません(打ち合わせの同席者に入れると出てきます)";box.appendChild(e);return}
-  names.forEach(n=>{const l=document.createElement("label");l.className="chk";l.style.margin="0";const c=document.createElement("input");c.type="checkbox";c.style.width="auto";c.checked=udTo.includes(n);
-    c.onchange=async()=>{const v=[...box.querySelectorAll("input:checked")].map(x=>x.parentElement.textContent.trim());try{await settingsRef.doc("notify").set({undecidedTo:v});udTo=v;$("udMsg").textContent="保存しました"}catch(e){$("udMsg").textContent="保存できませんでした"}};
-    l.append(c,document.createTextNode(" "+n));box.appendChild(l)});
+  [["udList",()=>udTo,v=>udTo=v],["rpList",()=>rpTo,v=>rpTo=v]].forEach(([id,get,set])=>{
+    const box=$(id);if(!box)return;box.innerHTML="";
+    if(!names.length){const e=document.createElement("span");e.className="empty";e.textContent="社内メンバーの名前がまだありません(打ち合わせの同席者に入れると出てきます)";box.appendChild(e);return}
+    names.forEach(n=>{const l=document.createElement("label");l.className="chk";l.style.margin="0";const c=document.createElement("input");c.type="checkbox";c.style.width="auto";c.checked=get().includes(n);
+      c.onchange=async()=>{const v=[...box.querySelectorAll("input:checked")].map(x=>x.parentElement.textContent.trim());set(v);try{await settingsRef.doc("notify").set({undecidedTo:udTo,replyTo:rpTo});$("udMsg").textContent="保存しました"}catch(e){$("udMsg").textContent="保存できませんでした"}};
+      l.append(c,document.createTextNode(" "+n));box.appendChild(l)});
+  });
 }
 async function histSave(){if(settingsRef)await settingsRef.doc("history").set({types:hist.types,vendors:hist.vendors,staff:hist.staff})}
 async function histDelete(kind,n){
@@ -616,6 +623,20 @@ async function histRename(kind,n){
   $("histMsg").textContent="「"+n+"」を「"+to+"」に変えました"+(ng?"("+ng+"件は直せませんでした)":"")+(kind==="v"?"。業者のアカウントやLINEの登録名は、別に直してください":"");
   renderHist();
 }
+// ---- LINEで工事依頼 ----
+const NOTIFY_BASE="https://koutei-notify.nsk95.workers.dev";
+async function lineRequest(t){
+  const ws=whoL(t);
+  if(!confirm(ws.join("・")+"に、LINEで「"+t.name+"」の"+(t.flex?"日程の確認(入れる日を選んでもらう)":"日程の確認")+"を送ります。よろしいですか?"))return;
+  $("status").textContent="LINEを送っています…";
+  try{
+    const u=await claude.use("user"),tk=u&&u.token?await u.token():"";
+    const r=await fetch(NOTIFY_BASE+"/request",{method:"POST",headers:{"content-type":"application/json",authorization:"Bearer "+tk},body:JSON.stringify({taskId:t.id})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){$("status").textContent="送れませんでした("+(j.error||r.status)+")";return}
+    $("status").textContent=(j.sent&&j.sent.length?j.sent.join("・")+"に送りました。":"")+(j.none&&j.none.length?" 送れなかった業者:"+j.none.join("・")+"(LINE未登録など)":"");
+  }catch(e){$("status").textContent="送れませんでした(通信できませんでした)"}
+}
 // ---- バックアップ ----
 function bkLastShow(){let v="";try{v=localStorage.getItem("koutei-bk")||""}catch(e){}$("bkLast").textContent=v?"この端末で最後に保存した日:"+v:"この端末では、まだ保存していません"}
 bkLastShow();
@@ -649,7 +670,7 @@ $("bkFile").onchange=async()=>{
 };
 // ---- カレンダー購読(自動更新) ----
 const FEED_BASE="https://koutei-feed.nsk95.workers.dev";
-let udTo=[],hist={types:[],vendors:[],staff:[]},hLoaded=false,onlyMine=false,vendorMode=false,vendorNm="",notifyTok="",rawProps=[],rawTasks=[],previewAs="",realWrite=true,settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
+let rpTo=[],udTo=[],hist={types:[],vendors:[],staff:[]},hLoaded=false,onlyMine=false,vendorMode=false,vendorNm="",notifyTok="",rawProps=[],rawTasks=[],previewAs="",realWrite=true,settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
 const feedUrl=p=>p&&p.feedToken&&FEED_BASE?FEED_BASE.replace(/\/$/,"")+"/"+p.feedToken+".ics":"";
 function feedSched(){if(!canWrite||!propsRef||!pLoaded||!tLoaded)return;clearTimeout(feedT);feedT=setTimeout(feedPush,2500)}
 async function feedPush(){
@@ -675,7 +696,7 @@ async function feedPush(){
       if(JSON.stringify(want)!==JSON.stringify(t.viewers||[])||!!t.vhide!==hid){try{await tasksRef.doc(t.id).update({viewers:want,vhide:hid})}catch(e){}}
     }
     for(const t of tasks){
-      if(notWork(t)||!t.skipOff||t.flex)continue;
+      if(notWork(t)||!(t.skipOff||t.skipHol)||t.flex)continue;
       const d=[];segs(t,propOf(t)).forEach(([a,b])=>{for(let k=a;k<=b;k=dayAfter(k))d.push(k)});
       if(JSON.stringify(d)!==JSON.stringify(t.days||null)){try{await tasksRef.doc(t.id).update({days:d})}catch(e){}}
     }
@@ -926,7 +947,7 @@ function renderGrid(){
       b.appendChild(dh)}else b.appendChild(n);
     const hd=handsOn(key),day=ct.filter(t=>onDay(t,key)).sort((a,b)=>(!!a.flex)-(!!b.flex));
     hd.forEach(h=>{const c=document.createElement("span");c.className="chip hand";c.textContent=cur===ALL?"引渡予定:"+h.name:"引き渡し予定";b.appendChild(c)});
-    day.slice(0,10).forEach(t=>{const c=document.createElement("span");c.className="chip";c.style.background=tcol(t);c.textContent=t.name;if(t.kind==="personal"){const pc=vcol((t.attendees||[])[0]||"");c.className="chip meet";c.style.background="";c.style.backgroundColor=tint(pc,.22);c.style.borderColor=pc;c.style.borderStyle="solid";c.textContent=(t.attendees||[]).join("・")+":"+t.name}else if(t.kind==="meeting"){const pc=ptint(t);c.className="chip meet";c.style.background="";c.style.backgroundColor=tint(pc,.22);c.style.borderColor=pc;c.textContent="◇ "+t.name}else if(t.flex){const pc=ptint(t);c.className="chip flex";c.style.background="";c.style.backgroundColor=tint(pc,.22);c.style.borderColor=pc;c.textContent="調整中:"+t.name}{const tp=tpre(t);if(tp){const bb=document.createElement("b");bb.textContent=tp;c.insertBefore(bb,c.firstChild)}}b.appendChild(c)});
+    day.slice(0,10).forEach(t=>{const c=document.createElement("span");c.className="chip";c.style.background=tcol(t);c.textContent=t.name;if(t.kind==="personal"){const pc=vcol((t.attendees||[])[0]||"");c.className="chip meet";c.style.background="";c.style.backgroundColor=tint(pc,.22);c.style.borderColor=pc;c.style.borderStyle="solid";c.textContent=(t.attendees||[]).join("・")+":"+t.name}else if(t.kind==="meeting"){const pc=ptint(t);c.className="chip meet";c.style.background="";c.style.backgroundColor=tint(pc,.22);c.style.borderColor=pc;c.textContent="◇ "+t.name}else if(t.flex){const pc=ptint(t);c.className="chip flex";c.style.background="";c.style.backgroundColor=tint(pc,.22);c.style.borderColor=pc;c.textContent="調整中:"+t.name}{const tp=tpre(t);if(tp){const bb=document.createElement("b");bb.textContent=tp;c.insertBefore(bb,c.firstChild)}}if(t.reqAt&&!notWork(t)){const rp=t.replies||{},vs=Object.values(rp),mk=vs.some(x=>x.ans==="ng")?"！":whoL(t).every(w=>rp[w]&&rp[w].ans==="ok")?"✔":"？";c.insertBefore(document.createTextNode(mk),c.firstChild)}b.appendChild(c)});
     if(day.length>10){const m=document.createElement("span");m.className="more";m.textContent=`ほか${day.length-10}件`;b.appendChild(m)}
     b.onclick=()=>{sel=key;closeForm();render()};
     g.appendChild(b);
@@ -987,7 +1008,7 @@ function renderGantt(){
     const nm=document.createElement("div");nm.className="gname";nm.textContent=ty;row.appendChild(nm);
     const area=document.createElement("div");area.className="garea";
     area.style.width=(n*W)+"px";area.style.height=(Math.max(lanes.length,1)*44+6)+"px";
-    days.forEach((k,i)=>{if(isOff(k,cp)){const o=document.createElement("div");o.className="goff";o.style.left=(i*W)+"px";area.appendChild(o)}});
+    days.forEach((k,i)=>{if(isOff(k,cp)||holName(k)){const o=document.createElement("div");o.className="goff";o.style.left=(i*W)+"px";area.appendChild(o)}});
     if(cp&&cp.handover&&cp.handover>=first&&cp.handover<=last){const hl=document.createElement("div");hl.className="ghand";hl.style.left=(di(cp.handover)*W)+"px";area.appendChild(hl)}
     if(today>=first&&today<=last){const td=document.createElement("div");td.className="gtoday";td.style.left=(di(today)*W)+"px";area.appendChild(td)}
     placed.forEach(({t,i,s,left,bw,sg})=>{
@@ -1027,10 +1048,11 @@ function renderDay(){
     const body=document.createElement("div");body.className="body";
     const nm=document.createElement("div");nm.className="name";nm.textContent=t.kind==="personal"?"【社内予定】"+(t.attendees||[]).join("・")+":"+t.name:(t.flex?"【日程未定】":"")+(cur===ALL&&propOf(t)?"【"+propOf(t).name+"】":"")+(t.type||"その他")+":"+t.name;
     const meta=document.createElement("div");meta.className="meta";
-    meta.textContent=t.flex?((t.who?whoS(t)+" / ":"")+"期間 "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+" のどこか"+(t.need?"(作業"+t.need+"日)":"")):(t.who?whoS(t)+" / ":"")+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":"");
+    meta.textContent=t.flex?((t.who?whoS(t)+" / ":"")+"期間 "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+" のどこか"+(t.need?"(作業"+t.need+"日)":"")):(t.who?whoS(t)+" / ":"")+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":"")+(t.skipHol?"(祝日除く)":"");
     if(t.kind==="meeting"&&t.attendees&&t.attendees.length&&!vendorMode&&!previewAs)meta.textContent+="  同席:"+t.attendees.join("、");
     if(t.kind==="personal")meta.textContent=t.start.slice(5).replace("-","/")+(t.end!==t.start?" 〜 "+t.end.slice(5).replace("-","/"):"")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:" 終日");
     if(t.kind==="meeting"&&t.mvend&&t.mvend.length)meta.textContent+="  業者:"+t.mvend.join("、");
+    if(t.reqAt){const rp=t.replies||{},lab={ok:"OK",ng:"相談希望"};const parts=whoL(t).map(w=>w+":"+(rp[w]?lab[rp[w].ans]||rp[w].ans:"返事待ち"));const d=new Date(t.reqAt);meta.textContent+="  [LINE依頼 "+(d.getMonth()+1)+"/"+d.getDate()+"] "+parts.join("、")}
     if(t.confirmedBy)meta.textContent+="  ✔業者が確定:"+t.confirmedBy;
     body.append(nm,meta);
     if(t.flex&&((vendorMode&&hasWho(t,vendorNm))||(previewAs&&hasWho(t,previewAs)))){
@@ -1050,6 +1072,7 @@ function renderDay(){
       const del=document.createElement("button");del.type="button";del.className="del";del.textContent="削除";
       twoStep(del,()=>removeTask(t.id));
       if(t.flex){const cf=document.createElement("button");cf.type="button";cf.textContent="日程を確定";cf.onclick=()=>confirmFlex(t);act.appendChild(cf)}
+      if(!notWork(t)&&t.who&&tasksRef&&!previewAs){const lb=document.createElement("button");lb.type="button";lb.textContent="LINEで依頼";lb.onclick=()=>lineRequest(t);act.appendChild(lb)}
       act.append(ed,del);it.appendChild(act);
     }
     box.appendChild(it);
@@ -1085,7 +1108,7 @@ function openForm(t){
   fillTypes(t?(t.type||"その他"):"");
   $("fName").value=t?t.name:"";fillWho(t?t.who||"":"",t?t.who2||"":"",t?t.who3||"":"");
   $("fStart").value=t?t.start:sel;$("fEnd").value=t?t.end:sel;$("fStart").dataset.prev=$("fStart").value;$("fNote").value=t?t.note||"":"";
-  const al2=!t||t.allDay!==false;$("fAll").checked=al2;$("fTimes").hidden=al2;$("fT1").value=t&&t.t1?t.t1:"08:00";$("fT2").value=t&&t.t2?t.t2:"09:00";$("fSkip").checked=!!(t&&t.skipOff);$("fKind").value=t&&(t.kind==="meeting"||t.kind==="personal")?t.kind:"work";setKind();attSel=new Set(t&&t.attendees||[]);renderAtt();mvSel=new Set(t&&t.mvend||[]);renderMv();$("fFlex").checked=!!(t&&t.flex);$("fNeed").value=t&&t.need||"";setFlex();
+  const al2=!t||t.allDay!==false;$("fAll").checked=al2;$("fTimes").hidden=al2;$("fT1").value=t&&t.t1?t.t1:"08:00";$("fT2").value=t&&t.t2?t.t2:"09:00";$("fSkip").checked=!!(t&&t.skipOff);$("fSkipHol").checked=!!(t&&t.skipHol);$("fKind").value=t&&(t.kind==="meeting"||t.kind==="personal")?t.kind:"work";setKind();attSel=new Set(t&&t.attendees||[]);renderAtt();mvSel=new Set(t&&t.mvend||[]);renderMv();$("fFlex").checked=!!(t&&t.flex);$("fNeed").value=t&&t.need||"";setFlex();
   setColor(t?t.color:COLORS[Math.max(formTypes().indexOf($("fType").value),0)%COLORS.length]);
   $("form").hidden=false;$("addBtn").hidden=true;$("fType").focus();
 }
@@ -1107,7 +1130,7 @@ $("fAttAdd").onclick=()=>{const v=$("fAttNew").value.trim();if(!v)return;attSel.
 function setFlex(){
   const meet=$("fKind").value!=="work",f=$("fFlex").checked&&!meet;
   $("fFlex").parentElement.hidden=meet;$("fFlexBox").hidden=!f;
-  $("fAll").parentElement.hidden=f;$("fSkip").parentElement.hidden=f||meet;
+  $("fAll").parentElement.hidden=f;$("fSkip").parentElement.hidden=f||meet;$("fSkipHol").parentElement.hidden=f||meet;
   $("fTimes").hidden=f||$("fAll").checked;
 }
 $("fFlex").onchange=setFlex;$("fKind").addEventListener("change",setFlex);$("fAll").addEventListener("change",setFlex);
@@ -1146,7 +1169,7 @@ const setKind=()=>{
   $("fAttLbl").textContent=ps?"誰の予定か(複数可・本人にLINEで通知します)":"同席する社内メンバー(LINEで通知します)";
   $("fPropWrap").hidden=cur!==ALL||ps;
   $("fPropNewBox").hidden=$("fPropWrap").hidden||$("fProp").value!=="__new";if($("fPropNewBox").hidden)$("fPropSug").hidden=true;
-  [$("fType").parentElement,$("fWhoSel").parentElement,$("fWho2Sel").parentElement,$("fWho3Sel").parentElement,$("fSkip").parentElement].forEach(e=>e.hidden=m);
+  [$("fType").parentElement,$("fWhoSel").parentElement,$("fWho2Sel").parentElement,$("fWho3Sel").parentElement,$("fSkip").parentElement,$("fSkipHol").parentElement].forEach(e=>e.hidden=m);
   $("fAttBox").hidden=!m;$("fMvBox").hidden=!m||ps;
   $("fNameLbl").textContent=ps?"予定の内容":m?"打ち合わせの内容":"何工事か(工事名)";$("fName").placeholder=ps?"例:休み、出張、研修":m?"例:現地調査、プラン打ち合わせ":"例:土台敷き";
   if(m){$("fTypeNew").hidden=true;$("fWhoNew").hidden=true;$("fWho2New").hidden=true;$("fWho3New").hidden=true}
@@ -1323,7 +1346,7 @@ $("form").onsubmit=async e=>{
   if(p&&p.id!==LEG&&!nw&&!(p.types||[]).includes(ty)){p.types=[...(p.types||[]),ty];saveProp(p)}
   const color=(document.querySelector("#colors input:checked")||{}).value||COLORS[0];
   const id=editId||"t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  saveTask({id,propId:tp===LEG?"":tp,kind,type:ty,name:$("fName").value.trim(),who,who2,who3,start:s,end:en,color,note:$("fNote").value.trim(),allDay:flex?true:$("fAll").checked,t1:$("fT1").value,t2:$("fT2").value,skipOff:flex?false:$("fSkip").checked,attendees:nw?[...attSel]:[],mvend:kind==="meeting"?[...mvSel]:[],flex:flex,need:flex&&$("fNeed").value?Math.max(1,Math.min(60,+$("fNeed").value)):0},tasks.find(x=>x.id===id));
+  saveTask({id,propId:tp===LEG?"":tp,kind,type:ty,name:$("fName").value.trim(),who,who2,who3,start:s,end:en,color,note:$("fNote").value.trim(),allDay:flex?true:$("fAll").checked,t1:$("fT1").value,t2:$("fT2").value,skipOff:flex?false:$("fSkip").checked,skipHol:flex?false:$("fSkipHol").checked,attendees:nw?[...attSel]:[],mvend:kind==="meeting"?[...mvSel]:[],flex:flex,need:flex&&$("fNeed").value?Math.max(1,Math.min(60,+$("fNeed").value)):0},tasks.find(x=>x.id===id));
   closeForm();
   if(kind==="personal"&&cur!==ALL)$("status").textContent="社内予定は、全物件のカレンダーに入ります";
 };
@@ -1386,7 +1409,7 @@ function buildPdfCanvas(from,to,o){
   if(info){x.fillStyle="#333";x.font="20px "+FONT;x.fillText(info,PAD,94)}
   days.forEach((k,idx)=>{
     const wd=new Date(+k.slice(0,4),+k.slice(5,7)-1,+k.slice(8)).getDay(),dx=X0+idx*dw,hol=holName(k);
-    if(isOff(k,p)){x.fillStyle="#ececec";x.fillRect(dx,top+24,dw,chartH-top-24)}
+    if(isOff(k,p)||hol){x.fillStyle="#ececec";x.fillRect(dx,top+24,dw,chartH-top-24)}
     if(p&&p.handover===k){x.fillStyle="rgba(255,150,40,0.30)";x.fillRect(dx,top+24,dw,chartH-top-24);x.fillStyle="#c05a00";x.font="bold 16px "+FONT;x.textAlign="center";x.fillText("引き渡し予定",Math.min(Math.max(dx+dw/2,PAD+60),CW-60),chartH+4);x.textAlign="left"}
     if(idx===0||k.slice(8)==="01"){x.fillStyle="#333";x.font="bold 18px "+FONT;x.textAlign="left";x.fillText(+k.slice(0,4)+"年"+(+k.slice(5,7))+"月",dx+2,top+2)}
     x.fillStyle=(wd===0||hol)?"#c0392b":wd===6?"#2b6cb0":"#333";x.font="16px "+FONT;x.textAlign="center";
@@ -1421,7 +1444,7 @@ function buildPdfCanvas(from,to,o){
       const t=l.t;
       x.fillStyle=vcol(t.who);x.fillRect(PAD+(l.v?24:0),ly+4,10,18);
       x.fillStyle="#222";x.font="19px "+FONT;
-      x.fillText((t.flex?"【日程調整中】":"")+(t.type||"その他")+" / "+t.name+(l.v?(whoL(t).length>1?" / "+whoS(t):""):(t.who?" / "+whoS(t):""))+" / "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.flex?" のどこか":"")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":""),PAD+(l.v?46:22),ly);
+      x.fillText((t.flex?"【日程調整中】":"")+(t.type||"その他")+" / "+t.name+(l.v?(whoL(t).length>1?" / "+whoS(t):""):(t.who?" / "+whoS(t):""))+" / "+t.start.slice(5).replace("-","/")+" 〜 "+t.end.slice(5).replace("-","/")+(t.flex?" のどこか":"")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:"")+(t.skipOff?"(休日除く)":"")+(t.skipHol?"(祝日除く)":""),PAD+(l.v?46:22),ly);
       ly+=30;
     });
     ly+=20;
@@ -1921,7 +1944,7 @@ $("cpGo").onclick=async()=>{
   let n=0;
   for(const t of src){
     const id="t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-    await saveTask({id,propId:p.id,kind:"work",type:t.type||"その他",name:t.name,who:withWho?t.who||"":"",who2:withWho?t.who2||"":"",who3:withWho?t.who3||"":"",start:addD(t.start,off),end:addD(t.end,off),color:t.color||COLORS[0],note:withNote?t.note||"":"",allDay:t.allDay!==false,t1:t.t1||"08:00",t2:t.t2||"17:00",skipOff:!!t.skipOff,attendees:[],mvend:[],flex:!!t.flex,need:t.need||0},null);
+    await saveTask({id,propId:p.id,kind:"work",type:t.type||"その他",name:t.name,who:withWho?t.who||"":"",who2:withWho?t.who2||"":"",who3:withWho?t.who3||"":"",start:addD(t.start,off),end:addD(t.end,off),color:t.color||COLORS[0],note:withNote?t.note||"":"",allDay:t.allDay!==false,t1:t.t1||"08:00",t2:t.t2||"17:00",skipOff:!!t.skipOff,skipHol:!!t.skipHol,attendees:[],mvend:[],flex:!!t.flex,need:t.need||0},null);
     n++;if(n%5===0)$("toolMsg").textContent="コピー中… "+n+" / "+src.length;
   }
   $("toolMsg").textContent=n+"件の工事をコピーしました。業者や日付は、1件ずつ直せます";cpInfo();
@@ -2118,7 +2141,7 @@ function startApp(u,role,vendorName){
       delete:()=>retry(()=>deleteDoc(doc(fs,name,id)))
     })
   })};
-  const userShim={can:async()=>staff,isOwner:async()=>role==="admin",canEdit:async()=>role==="admin",isVendor:async()=>role==="vendor",vendorName:async()=>vendorName};
+  const userShim={can:async()=>staff,isOwner:async()=>role==="admin",canEdit:async()=>role==="admin",isVendor:async()=>role==="vendor",vendorName:async()=>vendorName,token:async()=>auth.currentUser?await auth.currentUser.getIdToken():""};
   const dlShim={save:async({filename,data})=>{
     const url=URL.createObjectURL(data),a=document.createElement("a");
     a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
