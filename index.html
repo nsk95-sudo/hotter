@@ -341,6 +341,8 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
       <button type="button" class="primary" id="addBtn">この日に工事を追加</button>
       <form id="form" hidden>
         <label id="fPropWrap" hidden>物件<select id="fProp"></select></label>
+        <div id="fPropNewBox" class="row2" hidden><input id="fPropNew" maxlength="40" placeholder="新しい物件名 例:山田邸リフォーム" aria-label="新しい物件名"><select id="fPropStage" aria-label="段階"><option value="contract">契約済み(工事中)</option><option value="sales">接客中</option></select></div>
+        <div id="fPropSug" hidden style="display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 8px"></div>
         <label>種類<select id="fKind"><option value="work">工事</option><option value="meeting">打ち合わせ(横棒の工程表には出しません)</option><option value="personal">社内予定(休み・出張など、個人の予定)</option></select></label>
         <label>工事種別<select id="fType"></select></label>
         <input id="fTypeNew" maxlength="30" placeholder="新しい工事種別 例:大工工事" aria-label="新しい工事種別" hidden>
@@ -1076,7 +1078,9 @@ function openForm(t){
   if(cur===ALL){
     const fp=$("fProp"),own=t?(t.propId||LEG):"";fp.innerHTML="";
     propList().filter(q=>!isDone(q)||q.id===own).forEach(q=>{const o=document.createElement("option");o.value=q.id;o.textContent=q.name;fp.appendChild(o)});
-    if(own)fp.value=own;
+    {const o=document.createElement("option");o.value="__new";o.textContent="＋新しい物件を作る";fp.appendChild(o)}
+    if(own)fp.value=own;else if(fp.options.length===1)fp.value="__new";
+    $("fPropNew").value="";$("fPropSug").hidden=true;
   }
   fillTypes(t?(t.type||"その他"):"");
   $("fName").value=t?t.name:"";fillWho(t?t.who||"":"",t?t.who2||"":"",t?t.who3||"":"");
@@ -1141,6 +1145,7 @@ const setKind=()=>{
   const kd=$("fKind").value,m=kd==="meeting"||kd==="personal",ps=kd==="personal";
   $("fAttLbl").textContent=ps?"誰の予定か(複数可・本人にLINEで通知します)":"同席する社内メンバー(LINEで通知します)";
   $("fPropWrap").hidden=cur!==ALL||ps;
+  $("fPropNewBox").hidden=$("fPropWrap").hidden||$("fProp").value!=="__new";if($("fPropNewBox").hidden)$("fPropSug").hidden=true;
   [$("fType").parentElement,$("fWhoSel").parentElement,$("fWho2Sel").parentElement,$("fWho3Sel").parentElement,$("fSkip").parentElement].forEach(e=>e.hidden=m);
   $("fAttBox").hidden=!m;$("fMvBox").hidden=!m||ps;
   $("fNameLbl").textContent=ps?"予定の内容":m?"打ち合わせの内容":"何工事か(工事名)";$("fName").placeholder=ps?"例:休み、出張、研修":m?"例:現地調査、プラン打ち合わせ":"例:土台敷き";
@@ -1268,13 +1273,28 @@ COLORS.forEach((c,i)=>{
   l.querySelector("input").setAttribute("aria-label","色"+(i+1));
   $("colors").appendChild(l);
 });
-$("fProp").onchange=()=>{fillTypes("");fillWho("")};
+$("fProp").onchange=()=>{fillTypes("");fillWho("");$("fPropNewBox").hidden=$("fProp").value!=="__new";$("fPropSug").hidden=true;if($("fProp").value==="__new")$("fPropNew").focus()};
+const pnorm=x=>String(x||"").replace(/[\s\u3000]/g,"").replace(/[ァ-ン]/g,c=>String.fromCharCode(c.charCodeAt(0)-0x60)).toLowerCase();
+function usePropExisting(q){
+  const fp=$("fProp");if(![...fp.options].some(o=>o.value===q.id)){const o=document.createElement("option");o.value=q.id;o.textContent=q.name+(isDone(q)?"(引き渡し済み)":"");fp.insertBefore(o,fp.lastChild)}
+  fp.value=q.id;$("fPropNewBox").hidden=true;$("fPropSug").hidden=true;$("fPropNew").value="";fillTypes("");fillWho("");
+  $("status").textContent="今ある物件「"+q.name+"」を選びました";
+}
+$("fPropNew").addEventListener("input",()=>{
+  const v=pnorm($("fPropNew").value),box=$("fPropSug");box.innerHTML="";
+  if(!v){box.hidden=true;return}
+  const hits=props.filter(q=>pnorm(q.name).includes(v)||v.includes(pnorm(q.name))).slice(0,6);
+  if(!hits.length){box.hidden=true;return}
+  const lb=document.createElement("span");lb.style.cssText="font-size:.78rem;color:var(--sub);width:100%";lb.textContent="今ある物件(押すと、その物件に入れます)";box.appendChild(lb);
+  hits.forEach(q=>{const b=document.createElement("button");b.type="button";b.className="sync";b.style.margin="0";b.textContent=q.name+(stageOf(q)==="sales"?"【接客】":"")+(isDone(q)?"(引き渡し済み)":"");b.onclick=()=>usePropExisting(q);box.appendChild(b)});
+  box.hidden=false;
+});
 $("fType").onchange=()=>{
   const v=$("fType").value;$("fTypeNew").hidden=v!=="__new";fillWho("");
   if(!editId&&v!=="__new")setColor(COLORS[Math.max(typesOf().indexOf(v),0)%COLORS.length]);
   if(v==="__new")$("fTypeNew").focus();
 };
-$("form").onsubmit=e=>{
+$("form").onsubmit=async e=>{
   e.preventDefault();
   let s=$("fStart").value,en=$("fEnd").value;if(en<s)[s,en]=[en,s];
   let ty=$("fType").value==="__new"?$("fTypeNew").value.trim():$("fType").value;
@@ -1288,7 +1308,16 @@ $("form").onsubmit=e=>{
   if(kind==="personal"&&!attSel.size){$("status").textContent="誰の予定かを選んでください";return}
   const flex=!nw&&$("fFlex").checked;
   if(!flex&&!$("fAll").checked&&s===en&&$("fT2").value<=$("fT1").value){$("status").textContent="終了時刻は開始時刻より後にしてください";return}
-  const tp=kind==="personal"?LEG:cur===ALL?$("fProp").value:cur;
+  let tp=kind==="personal"?LEG:cur===ALL?$("fProp").value:cur;
+  if(tp==="__new"){
+    const pn=$("fPropNew").value.trim();
+    if(!pn){$("status").textContent="新しい物件の名前を入れてください";$("fPropNew").focus();return}
+    const same=props.find(q=>pnorm(q.name)===pnorm(pn));
+    if(same&&confirm("「"+same.name+"」という物件が、すでにあります。新しく作らずに、その物件に入れますか?\n(「キャンセル」を押すと、同じ名前で新しく作ります)")){usePropExisting(same);tp=same.id}else{
+    const np={id:"p"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:pn,stage:$("fPropStage").value,color:freeColor(),types:[],ts:Date.now()};
+    props.push(np);await saveProp(np);tp=np.id;$("fPropNew").value="";
+    $("status").textContent="物件「"+pn+"」を作りました";
+  }}
   if(!tp){$("status").textContent="物件を選んでください";return}
   const p=props.find(x=>x.id===tp);
   if(p&&p.id!==LEG&&!nw&&!(p.types||[]).includes(ty)){p.types=[...(p.types||[]),ty];saveProp(p)}
