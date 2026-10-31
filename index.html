@@ -360,7 +360,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
         <label class="chk"><input type="checkbox" id="fFlex" style="width:auto"> 日程は未定(この期間のどこかで入ってほしい)</label>
         <div id="fFlexBox" hidden><p class="empty" style="text-align:left;padding:2px 0">上の開始日〜終了日が、「この期間のどこか」になります。業者から返事があったら、工事の「日程を確定」を押して、実際の日付を入れてください。</p><label>作業にかかる日数(わかれば)<input id="fNeed" type="number" min="1" max="60" inputmode="numeric" placeholder="例:2"></label></div>
         <label class="chk"><input type="checkbox" id="fAll" checked style="width:auto"> 終日</label>
-        <div class="row2" id="fTimes" hidden><label>開始時刻<input id="fT1" type="time" value="08:00"></label><label>終了時刻<input id="fT2" type="time" value="17:00"></label></div>
+        <div class="row2" id="fTimes" hidden><label>開始時刻<input id="fT1" type="time" value="08:00"></label><label>終了時刻<input id="fT2" type="time" value="09:00"></label></div>
         <label class="chk"><input type="checkbox" id="fSkip" style="width:auto"> 休日は作業しない(休日を飛ばす)</label>
         <div class="colors" id="colors" role="radiogroup" aria-label="色" hidden></div>
         <label>メモ<textarea id="fNote" rows="2" maxlength="200"></textarea></label>
@@ -1081,7 +1081,7 @@ function openForm(t){
   fillTypes(t?(t.type||"その他"):"");
   $("fName").value=t?t.name:"";fillWho(t?t.who||"":"",t?t.who2||"":"",t?t.who3||"":"");
   $("fStart").value=t?t.start:sel;$("fEnd").value=t?t.end:sel;$("fStart").dataset.prev=$("fStart").value;$("fNote").value=t?t.note||"":"";
-  const al2=!t||t.allDay!==false;$("fAll").checked=al2;$("fTimes").hidden=al2;$("fT1").value=t&&t.t1?t.t1:"08:00";$("fT2").value=t&&t.t2?t.t2:"17:00";$("fSkip").checked=!!(t&&t.skipOff);$("fKind").value=t&&(t.kind==="meeting"||t.kind==="personal")?t.kind:"work";setKind();attSel=new Set(t&&t.attendees||[]);renderAtt();mvSel=new Set(t&&t.mvend||[]);renderMv();$("fFlex").checked=!!(t&&t.flex);$("fNeed").value=t&&t.need||"";setFlex();
+  const al2=!t||t.allDay!==false;$("fAll").checked=al2;$("fTimes").hidden=al2;$("fT1").value=t&&t.t1?t.t1:"08:00";$("fT2").value=t&&t.t2?t.t2:"09:00";$("fSkip").checked=!!(t&&t.skipOff);$("fKind").value=t&&(t.kind==="meeting"||t.kind==="personal")?t.kind:"work";setKind();attSel=new Set(t&&t.attendees||[]);renderAtt();mvSel=new Set(t&&t.mvend||[]);renderMv();$("fFlex").checked=!!(t&&t.flex);$("fNeed").value=t&&t.need||"";setFlex();
   setColor(t?t.color:COLORS[Math.max(formTypes().indexOf($("fType").value),0)%COLORS.length]);
   $("form").hidden=false;$("addBtn").hidden=true;$("fType").focus();
 }
@@ -1148,6 +1148,7 @@ const setKind=()=>{
   else{$("fTypeNew").hidden=$("fType").value!=="__new";$("fWhoNew").hidden=$("fWhoSel").value!=="__new";$("fWho2New").hidden=$("fWho2Sel").value!=="__new";$("fWho3New").hidden=$("fWho3Sel").value!=="__new"}
 };
 $("fKind").onchange=setKind;
+$("fT1").addEventListener("change",()=>{const v=$("fT1").value;if(!/^\d\d:\d\d$/.test(v))return;let [h,m]=v.split(":").map(Number);h+=1;if(h>23){h=23;m=59}$("fT2").value=String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")});
 $("fStart").addEventListener("focus",()=>{$("fStart").dataset.prev=$("fStart").value});
 $("fStart").addEventListener("change",()=>{
   const ps=$("fStart").dataset.prev,ns=$("fStart").value,e=$("fEnd").value;
