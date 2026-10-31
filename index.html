@@ -181,7 +181,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
   <p class="empty" style="text-align:left">業者がLINEの依頼に返事をしたとき(OK・相談希望・日程の確定)に、LINEで知らせます。</p>
   <div id="rpList" style="display:flex;flex-wrap:wrap;gap:6px 14px"></div>
   <h3 style="margin-top:16px;font-size:1rem">発注の期限を受け取る社内メンバー</h3>
-  <p class="empty" style="text-align:left">発注の期限が3日以内か、過ぎている物があるとき、毎日17時に、まとめてLINEで知らせます。</p>
+  <p class="empty" style="text-align:left">発注の期限が3日以内か、過ぎている物があるとき、毎日17時に、まとめてLINEで知らせます。ここで選んだ人には、すべての物の分が届きます。発注担当を決めた物は、その担当の人にも届きます。</p>
   <div id="odList" style="display:flex;flex-wrap:wrap;gap:6px 14px"></div>
   <p class="status" id="udMsg"></p>
   <h2 style="margin-top:28px">データのバックアップ</h2>
@@ -637,7 +637,11 @@ async function histRename(kind,n){
   renderHist();
 }
 // ---- 発注の管理 ----
-const ordDue=(t,o)=>{const [y,m,d]=t.start.split("-").map(Number);return ymd(new Date(y,m-1,d-(o.lead||0)))};
+const ordDue=(t,o)=>{const [y,m,d]=t.start.split("-").map(Number);
+  if(!o.bd)return ymd(new Date(y,m-1,d-(o.lead||0)));
+  const x=new Date(y,m-1,d);let c=o.lead||0,g=0;
+  while(c>0&&g<800){x.setDate(x.getDate()-1);g++;const k=ymd(x),w=x.getDay();if(w!==0&&w!==6&&!holName(k))c--}
+  return ymd(x)};
 const allOrds=()=>curTasks().filter(t=>!notWork(t)&&t.orders&&t.orders.length).flatMap(t=>t.orders.map((o,i)=>({t,o,i,due:ordDue(t,o)})));
 const ordsOn=k=>(vendorMode||previewAs)?[]:allOrds().filter(x=>!x.o.ordered&&x.due===k);
 function ordBadge(){
@@ -657,7 +661,7 @@ function renderOrd(){
     const tx=document.createElement("div");tx.style.cssText="flex:1;min-width:0";
     const st=o.ordered?"発注済み":due<today?"期限切れ":due<=soon?"もうすぐ":"";
     const h=document.createElement("div");h.style.fontWeight="600";h.style.color=o.ordered?"var(--sub)":due<today?"#b3261e":due<=soon?"#b7791f":"";h.textContent="期限 "+due.slice(5).replace("-","/")+(st?"【"+st+"】":"")+" "+o.name;
-    const sm=document.createElement("div");sm.style.cssText="font-size:.8rem;color:var(--sub)";const pp=propOf(t);sm.textContent=(pp?pp.name+" / ":"")+(t.type||"")+":"+t.name+" 取り付け "+t.start.slice(5).replace("-","/")+(t.who?" / "+whoS(t):"")+" ("+o.lead+"日前)";
+    const sm=document.createElement("div");sm.style.cssText="font-size:.8rem;color:var(--sub)";const pp=propOf(t);sm.textContent=(pp?pp.name+" / ":"")+(t.type||"")+":"+t.name+" 取り付け "+t.start.slice(5).replace("-","/")+(t.who?" / "+whoS(t):"")+" ("+(o.bd?"土日祝を除いて":"")+o.lead+"日前)"+(o.by?" / 発注担当:"+o.by:"");
     tx.append(h,sm);r.append(cb,tx);box.appendChild(r);
   });
 }
@@ -729,6 +733,11 @@ async function feedPush(){
     if(feedLast[reformTok]!==key){try{await fdb.collection("feeds").doc(reformTok).set({ics:r.text,pid:"reform",ts:Date.now()});feedLast[reformTok]=key}catch(e){}}
   }
   if(tasksRef){
+    for(const t of tasks){
+      if(notWork(t)||!t.orders||!t.orders.length||!t.start)continue;
+      const os=t.orders.map(o=>({...o,due:ordDue(t,o)}));
+      if(os.some((o,i)=>o.due!==t.orders[i].due)){try{await tasksRef.doc(t.id).update({orders:os})}catch(e){}}
+    }
     const vm={};
     tasks.forEach(t=>{if(!notWork(t)&&t.who){const k=t.propId||"";whoL(t).forEach(w=>(vm[k]=vm[k]||new Set()).add(w))}});
     for(const t of tasks){
@@ -1096,7 +1105,7 @@ function renderDay(){
     if(t.kind==="personal")meta.textContent=t.start.slice(5).replace("-","/")+(t.end!==t.start?" 〜 "+t.end.slice(5).replace("-","/"):"")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:" 終日");
     if(t.kind==="meeting"&&t.mvend&&t.mvend.length)meta.textContent+="  業者:"+t.mvend.join("、");
     if(t.reqAt){const rp=t.replies||{},lab={ok:"OK",ng:"相談希望"};const parts=whoL(t).map(w=>w+":"+(rp[w]?lab[rp[w].ans]||rp[w].ans:"返事待ち"));const d=new Date(t.reqAt);meta.textContent+="  [LINE依頼 "+(d.getMonth()+1)+"/"+d.getDate()+"] "+parts.join("、")}
-    if(t.orders&&t.orders.length&&!vendorMode&&!previewAs)meta.textContent+="  発注:"+t.orders.map(o=>o.name+"("+(o.ordered?"済":"期限"+ordDue(t,o).slice(5).replace("-","/"))+")").join("、");
+    if(t.orders&&t.orders.length&&!vendorMode&&!previewAs)meta.textContent+="  発注:"+t.orders.map(o=>o.name+"("+(o.ordered?"済":"期限"+ordDue(t,o).slice(5).replace("-","/"))+(o.by?"・"+o.by:"")+")").join("、");
     if(t.confirmedBy)meta.textContent+="  ✔業者が確定:"+t.confirmedBy;
     body.append(nm,meta);
     if(t.flex&&((vendorMode&&hasWho(t,vendorNm))||(previewAs&&hasWho(t,previewAs)))){
@@ -1129,7 +1138,7 @@ function setColor(c){document.querySelectorAll("#colors input").forEach(r=>r.che
 const uniq=a=>[...new Set(a.filter(Boolean))];
 const allTypes=()=>uniq([...hist.types,...props.flatMap(p=>p.types||[]),...tasks.filter(t=>!notWork(t)).map(t=>t.type||"その他")]).filter(x=>x!=="打ち合わせ"&&x!=="社内予定").sort((a,b)=>a.localeCompare(b,"ja"));
 const allVendors=()=>uniq([...hist.vendors,...tasks.flatMap(whoL),...tasks.flatMap(t=>t.mvend||[])]).sort((a,b)=>a.localeCompare(b,"ja"));
-const allStaff=()=>uniq([...hist.staff,...tasks.flatMap(t=>t.attendees||[])]).sort((a,b)=>a.localeCompare(b,"ja"));
+const allStaff=()=>uniq([...hist.staff,...tasks.flatMap(t=>t.attendees||[]),...tasks.flatMap(t=>(t.orders||[]).map(o=>o.by))]).sort((a,b)=>a.localeCompare(b,"ja"));
 function addOpts(sel,groups){groups.forEach(([lab,items])=>{if(!items.length)return;const g=document.createElement("optgroup");g.label=lab;items.forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;g.appendChild(o)});sel.appendChild(g)})}
 function fillTypes(selected){
   const own=formTypes(),oth=allTypes().filter(x=>!own.includes(x)),ty=[...own,...oth],s=$("fType");s.innerHTML="";
@@ -1165,8 +1174,12 @@ function renderOrdRows(){
     const ld=document.createElement("input");ld.type="number";ld.min="0";ld.max="365";ld.inputMode="numeric";ld.value=o.lead==null?21:o.lead;ld.style.width="4.5em";ld.oninput=()=>{o.lead=Math.max(0,parseInt(ld.value,10)||0)};
     const lt=document.createElement("span");lt.textContent="日前";lt.style.fontSize=".85rem";
     const cl=document.createElement("label");cl.className="chk";cl.style.margin="0";const cb=document.createElement("input");cb.type="checkbox";cb.style.width="auto";cb.checked=!!o.ordered;cb.onchange=()=>{o.ordered=cb.checked;o.orderedAt=cb.checked?Date.now():0};cl.append(cb,document.createTextNode(" 発注済み"));
+    const bl=document.createElement("label");bl.className="chk";bl.style.margin="0";const bc=document.createElement("input");bc.type="checkbox";bc.style.width="auto";bc.checked=!!o.bd;bc.onchange=()=>{o.bd=bc.checked};bl.append(bc,document.createTextNode(" 土日祝を除いて数える"));
+    const sp=document.createElement("select");sp.setAttribute("aria-label","発注担当");sp.style.maxWidth="9em";
+    [["","(発注担当なし)"],...uniq([...allStaff(),o.by||""]).filter(Boolean).map(n=>[n,"担当:"+n]),["__new","＋担当を入力"]].forEach(([v,l])=>{const op=document.createElement("option");op.value=v;op.textContent=l;sp.appendChild(op)});
+    sp.value=o.by||"";sp.onchange=()=>{if(sp.value==="__new"){const v=(prompt("発注担当の名前を入れてください")||"").trim();if(v){o.by=v;renderOrdRows();return}sp.value=o.by||"";return}o.by=sp.value};
     const x=document.createElement("button");x.type="button";x.textContent="×";x.setAttribute("aria-label","削除");x.onclick=()=>{ordRows.splice(i,1);renderOrdRows()};
-    r.append(nm,ld,lt,cl,x);box.appendChild(r);
+    r.append(nm,ld,lt,bl,sp,cl,x);box.appendChild(r);
   });
 }
 $("fOrdAdd").onclick=()=>{ordRows.push({name:"",lead:21,ordered:false});renderOrdRows();const ins=$("fOrdList").querySelectorAll("input:not([type])");if(ins.length)ins[ins.length-1].focus()};
@@ -1404,7 +1417,7 @@ $("form").onsubmit=async e=>{
   if(p&&p.id!==LEG&&!nw&&!(p.types||[]).includes(ty)){p.types=[...(p.types||[]),ty];saveProp(p)}
   const color=(document.querySelector("#colors input:checked")||{}).value||COLORS[0];
   const id=editId||"t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  saveTask({id,propId:tp===LEG?"":tp,kind,type:ty,name:$("fName").value.trim(),who,who2,who3,start:s,end:en,color,note:$("fNote").value.trim(),allDay:flex?true:$("fAll").checked,t1:$("fT1").value,t2:$("fT2").value,skipOff:flex?false:$("fSkip").checked,skipHol:flex?false:$("fSkipHol").checked,attendees:nw?[...attSel]:[],mvend:kind==="meeting"?[...mvSel]:[],orders:nw?[]:ordRows.filter(o=>(o.name||"").trim()).map(o=>({name:o.name.trim(),lead:Math.max(0,o.lead==null?21:o.lead),ordered:!!o.ordered,orderedAt:o.ordered?(o.orderedAt||Date.now()):0})),flex:flex,need:flex&&$("fNeed").value?Math.max(1,Math.min(60,+$("fNeed").value)):0},tasks.find(x=>x.id===id));
+  saveTask({id,propId:tp===LEG?"":tp,kind,type:ty,name:$("fName").value.trim(),who,who2,who3,start:s,end:en,color,note:$("fNote").value.trim(),allDay:flex?true:$("fAll").checked,t1:$("fT1").value,t2:$("fT2").value,skipOff:flex?false:$("fSkip").checked,skipHol:flex?false:$("fSkipHol").checked,attendees:nw?[...attSel]:[],mvend:kind==="meeting"?[...mvSel]:[],orders:nw?[]:ordRows.filter(o=>(o.name||"").trim()).map(o=>{const r={name:o.name.trim(),lead:Math.max(0,o.lead==null?21:o.lead),bd:!!o.bd,by:o.by||"",ordered:!!o.ordered,orderedAt:o.ordered?(o.orderedAt||Date.now()):0};r.due=ordDue({start:s},r);return r}),flex:flex,need:flex&&$("fNeed").value?Math.max(1,Math.min(60,+$("fNeed").value)):0},tasks.find(x=>x.id===id));
   closeForm();
   if(kind==="personal"&&cur!==ALL)$("status").textContent="社内予定は、全物件のカレンダーに入ります";
 };
@@ -2002,7 +2015,7 @@ $("cpGo").onclick=async()=>{
   let n=0;
   for(const t of src){
     const id="t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-    await saveTask({id,propId:p.id,kind:"work",type:t.type||"その他",name:t.name,who:withWho?t.who||"":"",who2:withWho?t.who2||"":"",who3:withWho?t.who3||"":"",start:addD(t.start,off),end:addD(t.end,off),color:t.color||COLORS[0],note:withNote?t.note||"":"",allDay:t.allDay!==false,t1:t.t1||"08:00",t2:t.t2||"17:00",skipOff:!!t.skipOff,skipHol:!!t.skipHol,orders:(t.orders||[]).map(o=>({name:o.name,lead:o.lead,ordered:false,orderedAt:0})),attendees:[],mvend:[],flex:!!t.flex,need:t.need||0},null);
+    await saveTask({id,propId:p.id,kind:"work",type:t.type||"その他",name:t.name,who:withWho?t.who||"":"",who2:withWho?t.who2||"":"",who3:withWho?t.who3||"":"",start:addD(t.start,off),end:addD(t.end,off),color:t.color||COLORS[0],note:withNote?t.note||"":"",allDay:t.allDay!==false,t1:t.t1||"08:00",t2:t.t2||"17:00",skipOff:!!t.skipOff,skipHol:!!t.skipHol,orders:(t.orders||[]).map(o=>({name:o.name,lead:o.lead,bd:!!o.bd,by:o.by||"",ordered:false,orderedAt:0})),attendees:[],mvend:[],flex:!!t.flex,need:t.need||0},null);
     n++;if(n%5===0)$("toolMsg").textContent="コピー中… "+n+" / "+src.length;
   }
   $("toolMsg").textContent=n+"件の工事をコピーしました。業者や日付は、1件ずつ直せます";cpInfo();
