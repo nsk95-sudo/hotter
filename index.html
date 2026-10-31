@@ -637,6 +637,11 @@ async function histRename(kind,n){
   renderHist();
 }
 // ---- 発注の管理 ----
+async function markOrdered(t,i,val){
+  const os=(t.orders||[]).map(x=>({...x}));if(!os[i])return;os[i].ordered=val;os[i].orderedAt=val?Date.now():0;
+  try{if(tasksRef)await tasksRef.doc(t.id).update({orders:os});else await saveTask({...t,orders:os},t);$("status").textContent=os[i].name+"を"+(val?"発注済みにしました":"未発注に戻しました")}
+  catch(e){$("status").textContent="保存できませんでした"}
+}
 const ordDue=(t,o)=>{const [y,m,d]=t.start.split("-").map(Number);
   if(!o.bd)return ymd(new Date(y,m-1,d-(o.lead||0)));
   const x=new Date(y,m-1,d);let c=o.lead||0,g=0;
@@ -656,8 +661,7 @@ function renderOrd(){
   list.forEach(({t,o,i,due})=>{
     const r=document.createElement("label");r.className="chk";r.style.cssText="display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line);margin:0";
     const cb=document.createElement("input");cb.type="checkbox";cb.style.width="auto";cb.checked=!!o.ordered;cb.disabled=!canWrite;
-    cb.onchange=async()=>{const os=(t.orders||[]).map(x=>({...x}));os[i].ordered=cb.checked;os[i].orderedAt=cb.checked?Date.now():0;
-      try{if(tasksRef)await tasksRef.doc(t.id).update({orders:os});else{await saveTask({...t,orders:os},t)}$("status").textContent=o.name+"を"+(cb.checked?"発注済みにしました":"未発注に戻しました")}catch(e){$("status").textContent="保存できませんでした"}};
+    cb.onchange=()=>markOrdered(t,i,cb.checked);
     const tx=document.createElement("div");tx.style.cssText="flex:1;min-width:0";
     const st=o.ordered?"発注済み":due<today?"期限切れ":due<=soon?"もうすぐ":"";
     const h=document.createElement("div");h.style.fontWeight="600";h.style.color=o.ordered?"var(--sub)":due<today?"#b3261e":due<=soon?"#b7791f":"";h.textContent="期限 "+due.slice(5).replace("-","/")+(st?"【"+st+"】":"")+" "+o.name;
@@ -1093,6 +1097,17 @@ function renderDay(){
   if(showKy){const k=kyOf(sel);const sm=document.createElement("small");sm.style.cssText="display:block;font-size:.75rem;font-weight:400;color:var(--sub)";sm.textContent=[k.r6,k.choku?"十二直:"+k.choku:"",k.kichi?"建築吉日":"",...k.marks.map(x=>x[0]),k.lunar?"旧暦 "+(k.lunar.leap?"閏":"")+k.lunar.m+"月"+k.lunar.d+"日":""].filter(Boolean).join("・");$("dayTitle").appendChild(sm)}
   const box=$("dayList");box.innerHTML="";
   const day=curTasks().filter(t=>onDay(t,sel));
+  {const dl=ordsOn(sel);if(dl.length){
+    const h=document.createElement("div");h.style.cssText="font-weight:700;color:#b3261e;margin:4px 0";h.textContent="この日が期限の発注";box.appendChild(h);
+    dl.forEach(({t,o,i})=>{const it=document.createElement("div");it.className="item";
+      const bar=document.createElement("div");bar.className="bar";bar.style.background="#e57373";
+      const body=document.createElement("div");body.className="body";const pp=propOf(t);
+      const nm=document.createElement("div");nm.className="name";nm.textContent="発注:"+o.name;
+      const mt=document.createElement("div");mt.className="meta";mt.textContent=(pp?pp.name+" / ":"")+t.name+" 取り付け "+t.start.slice(5).replace("-","/")+(o.by?" / 発注担当:"+o.by:"");
+      body.append(nm,mt);it.append(bar,body);
+      if(canWrite){const act=document.createElement("div");act.className="act";const b=document.createElement("button");b.type="button";b.textContent="発注完了";b.onclick=()=>markOrdered(t,i,true);act.appendChild(b);it.appendChild(act)}
+      box.appendChild(it)});
+  }}
   if(!day.length){const p=document.createElement("p");p.className="empty";p.textContent="この日の工事はありません";box.appendChild(p)}
   day.forEach(t=>{
     const it=document.createElement("div");it.className="item";
@@ -1125,6 +1140,7 @@ function renderDay(){
       const del=document.createElement("button");del.type="button";del.className="del";del.textContent="削除";
       twoStep(del,()=>removeTask(t.id));
       if(t.flex){const cf=document.createElement("button");cf.type="button";cf.textContent="日程を確定";cf.onclick=()=>confirmFlex(t);act.appendChild(cf)}
+      (t.orders||[]).forEach((o,i)=>{if(o.ordered||notWork(t))return;const ob=document.createElement("button");ob.type="button";ob.textContent=o.name+" 発注完了";ob.onclick=()=>markOrdered(t,i,true);act.appendChild(ob)});
       if(!notWork(t)&&t.who&&tasksRef&&!previewAs){const lb=document.createElement("button");lb.type="button";lb.textContent="LINEで依頼";lb.onclick=()=>lineRequest(t);act.appendChild(lb)}
       act.append(ed,del);it.appendChild(act);
     }
