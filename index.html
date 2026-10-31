@@ -113,6 +113,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
 .addr a{color:var(--accent);margin-left:8px;font-weight:600}
 .chip.hand{background:#d9780a}
 .chip.flex{background-image:repeating-linear-gradient(45deg,transparent 0 4px,rgba(128,128,128,.22) 4px 8px);color:var(--ink);border:1px dashed var(--sub)}
+.chip.ord{background:var(--surface);color:#b3261e;border:1px solid #e57373;font-weight:600}
 .chip.meet{background:var(--surface);color:var(--ink);border:1px dashed var(--sub)}
 .ghand{position:absolute;top:0;bottom:0;width:26px;background:rgba(255,150,40,.3)}
 .gdays .hand{background:#ffe6c7;color:#1c2a27}
@@ -179,6 +180,9 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
   <h3 style="margin-top:16px;font-size:1rem">LINE依頼の返事を受け取る社内メンバー</h3>
   <p class="empty" style="text-align:left">業者がLINEの依頼に返事をしたとき(OK・相談希望・日程の確定)に、LINEで知らせます。</p>
   <div id="rpList" style="display:flex;flex-wrap:wrap;gap:6px 14px"></div>
+  <h3 style="margin-top:16px;font-size:1rem">発注の期限を受け取る社内メンバー</h3>
+  <p class="empty" style="text-align:left">発注の期限が3日以内か、過ぎている物があるとき、毎日17時に、まとめてLINEで知らせます。</p>
+  <div id="odList" style="display:flex;flex-wrap:wrap;gap:6px 14px"></div>
   <p class="status" id="udMsg"></p>
   <h2 style="margin-top:28px">データのバックアップ</h2>
   <p class="empty" style="text-align:left">全物件と全工事を、1つのファイル(.json)に保存します。月に1回くらい保存して、iPadの「ファイル」やDropboxに置いておくと安心です。ユーザーの登録は含みません。</p>
@@ -275,6 +279,13 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
     <div id="offList"></div>
     <button type="button" class="primary" id="offClose">閉じる</button>
   </section>
+  <section class="panel" id="ordPanel" hidden>
+    <h2>発注の一覧</h2>
+    <p class="empty" style="text-align:left;padding:2px 0">工事に登録した「発注する物」の、発注の期限の一覧です。発注したら、チェックを入れてください。</p>
+    <label class="chk"><input type="checkbox" id="ordShowDone" style="width:auto"> 発注済みも表示</label>
+    <div id="ordList"></div>
+    <button type="button" class="sync" id="ordClose">閉じる</button>
+  </section>
   <section class="panel" id="toolPanel" hidden>
     <h2>工程をまとめて操作(この物件)</h2>
     <h3 style="font-size:1rem;margin:10px 0 4px">前の物件の工程をコピー</h3>
@@ -312,6 +323,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
       <button type="button" id="tabCal" aria-pressed="true">カレンダー</button>
       <button type="button" id="tabGantt" aria-pressed="false">工程表(横棒)</button>
       <label style="display:inline-flex;align-items:center;gap:3px;font-size:.75rem;margin-left:6px;white-space:nowrap"><input type="checkbox" id="kyChk" style="width:auto"> 六曜・暦注</label>
+      <button type="button" id="ordBtn" hidden style="margin-left:6px">発注</button>
       <button type="button" id="pdfBtn" class="pdfb" hidden>書き出し</button>
     </div>
     <div class="legend" id="legend" hidden></div>
@@ -369,6 +381,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
         <label class="chk"><input type="checkbox" id="fSkip" style="width:auto"> 休日は作業しない(休日を飛ばす)</label>
         <label class="chk"><input type="checkbox" id="fSkipHol" style="width:auto"> 祝日も作業しない(祝日も飛ばす)</label>
         <div class="colors" id="colors" role="radiogroup" aria-label="色" hidden></div>
+        <div id="fOrdBox"><div class="fld" style="font-weight:600;margin:8px 0 4px">発注する物(取り付けの何日前までに発注するか)</div><div id="fOrdList"></div><button type="button" class="sync" id="fOrdAdd" style="margin:2px 0 8px">＋発注する物を追加</button></div>
         <label>メモ<textarea id="fNote" rows="2" maxlength="200"></textarea></label>
         <div class="btns"><button type="button" id="cancel">キャンセル</button><button type="submit" class="ok">保存</button></div>
       </form>
@@ -483,7 +496,7 @@ function twoStep(btn,fn){
     if(user){try{if(user.isVendor&&await user.isVendor()){vendorMode=true;vendorNm=await user.vendorName()}}catch(e){}}
     if(user){try{if(await user.isOwner()){const m=await claude.use("mcp");if(m){mcp=m;syncOn=true;gMsg("Googleカレンダーと連携中:あなたのカレンダーに登録されます");$("syncAll").hidden=false}}}catch(e){}}
     tasksRef=db.collection("tasks");propsRef=db.collection("props");settingsRef=db.collection("settings");
-    if(canWrite)settingsRef.onSnapshot(s=>{const nd=s.docs.find(x=>x.id==="notify");udTo=nd&&nd.data().undecidedTo||[];rpTo=nd&&nd.data().replyTo||[];const h=s.docs.find(x=>x.id==="history");if(h){const hd=h.data();hist={types:hd.types||[],vendors:hd.vendors||[],staff:hd.staff||[]}}hLoaded=true;const d=s.docs.find(x=>x.id==="feeds");reformTok=d&&d.data().reformToken||"";notifyTok=d&&d.data().notifyToken||"";feedRefresh();feedSched()},()=>{});
+    if(canWrite)settingsRef.onSnapshot(s=>{const nd=s.docs.find(x=>x.id==="notify");udTo=nd&&nd.data().undecidedTo||[];rpTo=nd&&nd.data().replyTo||[];odTo=nd&&nd.data().orderTo||[];const h=s.docs.find(x=>x.id==="history");if(h){const hd=h.data();hist={types:hd.types||[],vendors:hd.vendors||[],staff:hd.staff||[]}}hLoaded=true;const d=s.docs.find(x=>x.id==="feeds");reformTok=d&&d.data().reformToken||"";notifyTok=d&&d.data().notifyToken||"";feedRefresh();feedSched()},()=>{});
     propsRef.onSnapshot(s=>{props=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));pLoaded=true;rawProps=props;applyData();feedSched()},()=>{});
     tasksRef.onSnapshot(s=>{
       tasks=s.docs.map(d=>({id:d.id,...d.data()}));rawTasks=tasks;
@@ -580,11 +593,11 @@ $("hTabT").onclick=()=>{hTab="t";renderHist()};$("hTabV").onclick=()=>{hTab="v";
 $("btnUsers").addEventListener("click",()=>setTimeout(()=>{renderHist();renderUd()},0));
 function renderUd(){
   const names=allStaff();
-  [["udList",()=>udTo,v=>udTo=v],["rpList",()=>rpTo,v=>rpTo=v]].forEach(([id,get,set])=>{
+  [["udList",()=>udTo,v=>udTo=v],["rpList",()=>rpTo,v=>rpTo=v],["odList",()=>odTo,v=>odTo=v]].forEach(([id,get,set])=>{
     const box=$(id);if(!box)return;box.innerHTML="";
     if(!names.length){const e=document.createElement("span");e.className="empty";e.textContent="社内メンバーの名前がまだありません(打ち合わせの同席者に入れると出てきます)";box.appendChild(e);return}
     names.forEach(n=>{const l=document.createElement("label");l.className="chk";l.style.margin="0";const c=document.createElement("input");c.type="checkbox";c.style.width="auto";c.checked=get().includes(n);
-      c.onchange=async()=>{const v=[...box.querySelectorAll("input:checked")].map(x=>x.parentElement.textContent.trim());set(v);try{await settingsRef.doc("notify").set({undecidedTo:udTo,replyTo:rpTo});$("udMsg").textContent="保存しました"}catch(e){$("udMsg").textContent="保存できませんでした"}};
+      c.onchange=async()=>{const v=[...box.querySelectorAll("input:checked")].map(x=>x.parentElement.textContent.trim());set(v);try{await settingsRef.doc("notify").set({undecidedTo:udTo,replyTo:rpTo,orderTo:odTo});$("udMsg").textContent="保存しました"}catch(e){$("udMsg").textContent="保存できませんでした"}};
       l.append(c,document.createTextNode(" "+n));box.appendChild(l)});
   });
 }
@@ -623,6 +636,34 @@ async function histRename(kind,n){
   $("histMsg").textContent="「"+n+"」を「"+to+"」に変えました"+(ng?"("+ng+"件は直せませんでした)":"")+(kind==="v"?"。業者のアカウントやLINEの登録名は、別に直してください":"");
   renderHist();
 }
+// ---- 発注の管理 ----
+const ordDue=(t,o)=>{const [y,m,d]=t.start.split("-").map(Number);return ymd(new Date(y,m-1,d-(o.lead||0)))};
+const allOrds=()=>curTasks().filter(t=>!notWork(t)&&t.orders&&t.orders.length).flatMap(t=>t.orders.map((o,i)=>({t,o,i,due:ordDue(t,o)})));
+const ordsOn=k=>(vendorMode||previewAs)?[]:allOrds().filter(x=>!x.o.ordered&&x.due===k);
+function ordBadge(){
+  const b=$("ordBtn");if(!b)return;const all=allOrds();b.hidden=!all.length||vendorMode||!!previewAs;
+  const lim=ymd(new Date(Date.now()+7*864e5)),n=all.filter(x=>!x.o.ordered&&x.due<=lim).length;
+  b.textContent=n?"発注("+n+")":"発注";b.style.color=n?"#b3261e":"";b.style.fontWeight=n?"700":"";
+}
+function renderOrd(){
+  const box=$("ordList");box.innerHTML="";const today=ymd(new Date()),soon=ymd(new Date(Date.now()+3*864e5));
+  const list=allOrds().filter(x=>$("ordShowDone").checked||!x.o.ordered).sort((a,b)=>a.due<b.due?-1:a.due>b.due?1:0);
+  if(!list.length){const e=document.createElement("p");e.className="empty";e.textContent="発注する物はありません";box.appendChild(e);return}
+  list.forEach(({t,o,i,due})=>{
+    const r=document.createElement("label");r.className="chk";r.style.cssText="display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line);margin:0";
+    const cb=document.createElement("input");cb.type="checkbox";cb.style.width="auto";cb.checked=!!o.ordered;cb.disabled=!canWrite;
+    cb.onchange=async()=>{const os=(t.orders||[]).map(x=>({...x}));os[i].ordered=cb.checked;os[i].orderedAt=cb.checked?Date.now():0;
+      try{if(tasksRef)await tasksRef.doc(t.id).update({orders:os});else{await saveTask({...t,orders:os},t)}$("status").textContent=o.name+"を"+(cb.checked?"発注済みにしました":"未発注に戻しました")}catch(e){$("status").textContent="保存できませんでした"}};
+    const tx=document.createElement("div");tx.style.cssText="flex:1;min-width:0";
+    const st=o.ordered?"発注済み":due<today?"期限切れ":due<=soon?"もうすぐ":"";
+    const h=document.createElement("div");h.style.fontWeight="600";h.style.color=o.ordered?"var(--sub)":due<today?"#b3261e":due<=soon?"#b7791f":"";h.textContent="期限 "+due.slice(5).replace("-","/")+(st?"【"+st+"】":"")+" "+o.name;
+    const sm=document.createElement("div");sm.style.cssText="font-size:.8rem;color:var(--sub)";const pp=propOf(t);sm.textContent=(pp?pp.name+" / ":"")+(t.type||"")+":"+t.name+" 取り付け "+t.start.slice(5).replace("-","/")+(t.who?" / "+whoS(t):"")+" ("+o.lead+"日前)";
+    tx.append(h,sm);r.append(cb,tx);box.appendChild(r);
+  });
+}
+$("ordBtn").onclick=()=>{if($("ordPanel").hidden){renderOrd();$("ordPanel").hidden=false}else $("ordPanel").hidden=true};
+$("ordClose").onclick=()=>{$("ordPanel").hidden=true};
+$("ordShowDone").onchange=renderOrd;
 // ---- LINEで工事依頼 ----
 const NOTIFY_BASE="https://koutei-notify.nsk95.workers.dev";
 async function lineRequest(t){
@@ -670,7 +711,7 @@ $("bkFile").onchange=async()=>{
 };
 // ---- カレンダー購読(自動更新) ----
 const FEED_BASE="https://koutei-feed.nsk95.workers.dev";
-let rpTo=[],udTo=[],hist={types:[],vendors:[],staff:[]},hLoaded=false,onlyMine=false,vendorMode=false,vendorNm="",notifyTok="",rawProps=[],rawTasks=[],previewAs="",realWrite=true,settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
+let odTo=[],rpTo=[],udTo=[],hist={types:[],vendors:[],staff:[]},hLoaded=false,onlyMine=false,vendorMode=false,vendorNm="",notifyTok="",rawProps=[],rawTasks=[],previewAs="",realWrite=true,settingsRef=null,reformTok="",feedLast={},feedT=null,pLoaded=false,tLoaded=false;
 const feedUrl=p=>p&&p.feedToken&&FEED_BASE?FEED_BASE.replace(/\/$/,"")+"/"+p.feedToken+".ics":"";
 function feedSched(){if(!canWrite||!propsRef||!pLoaded||!tLoaded)return;clearTimeout(feedT);feedT=setTimeout(feedPush,2500)}
 async function feedPush(){
@@ -927,6 +968,7 @@ function render(){
   renderGrid();
   if(mode==="gantt")renderGantt();
   renderDay();
+  ordBadge();if(!$("ordPanel").hidden)renderOrd();
 }
 function renderGrid(){
   const g=$("grid");g.innerHTML="";
@@ -946,6 +988,7 @@ function renderGrid(){
       if(k.kichi)bd("建吉","kyg");k.marks.forEach(([nm,g])=>bd(nm==="一粒万倍日"?"万倍":nm==="天赦日"?"天赦":nm==="三隣亡"?"三隣亡":"不成就",nm==="三隣亡"?"kyr":g?"kyy":"kyx"));
       b.appendChild(dh)}else b.appendChild(n);
     const hd=handsOn(key),day=ct.filter(t=>onDay(t,key)).sort((a,b)=>(!!a.flex)-(!!b.flex));
+    ordsOn(key).forEach(({t,o})=>{const c=document.createElement("span");c.className="chip ord";c.textContent="発注:"+o.name+(cur===ALL&&propOf(t)?"("+propOf(t).name+")":"");b.appendChild(c)});
     hd.forEach(h=>{const c=document.createElement("span");c.className="chip hand";c.textContent=cur===ALL?"引渡予定:"+h.name:"引き渡し予定";b.appendChild(c)});
     day.slice(0,10).forEach(t=>{const c=document.createElement("span");c.className="chip";c.style.background=tcol(t);c.textContent=t.name;if(t.kind==="personal"){const pc=vcol((t.attendees||[])[0]||"");c.className="chip meet";c.style.background="";c.style.backgroundColor=tint(pc,.22);c.style.borderColor=pc;c.style.borderStyle="solid";c.textContent=(t.attendees||[]).join("・")+":"+t.name}else if(t.kind==="meeting"){const pc=ptint(t);c.className="chip meet";c.style.background="";c.style.backgroundColor=tint(pc,.22);c.style.borderColor=pc;c.textContent="◇ "+t.name}else if(t.flex){const pc=ptint(t);c.className="chip flex";c.style.background="";c.style.backgroundColor=tint(pc,.22);c.style.borderColor=pc;c.textContent="調整中:"+t.name}{const tp=tpre(t);if(tp){const bb=document.createElement("b");bb.textContent=tp;c.insertBefore(bb,c.firstChild)}}if(t.reqAt&&!notWork(t)){const rp=t.replies||{},vs=Object.values(rp),mk=vs.some(x=>x.ans==="ng")?"！":whoL(t).every(w=>rp[w]&&rp[w].ans==="ok")?"✔":"？";c.insertBefore(document.createTextNode(mk),c.firstChild)}b.appendChild(c)});
     if(day.length>10){const m=document.createElement("span");m.className="more";m.textContent=`ほか${day.length-10}件`;b.appendChild(m)}
@@ -1053,6 +1096,7 @@ function renderDay(){
     if(t.kind==="personal")meta.textContent=t.start.slice(5).replace("-","/")+(t.end!==t.start?" 〜 "+t.end.slice(5).replace("-","/"):"")+(t.allDay===false&&t.t1?" "+t.t1+"〜"+t.t2:" 終日");
     if(t.kind==="meeting"&&t.mvend&&t.mvend.length)meta.textContent+="  業者:"+t.mvend.join("、");
     if(t.reqAt){const rp=t.replies||{},lab={ok:"OK",ng:"相談希望"};const parts=whoL(t).map(w=>w+":"+(rp[w]?lab[rp[w].ans]||rp[w].ans:"返事待ち"));const d=new Date(t.reqAt);meta.textContent+="  [LINE依頼 "+(d.getMonth()+1)+"/"+d.getDate()+"] "+parts.join("、")}
+    if(t.orders&&t.orders.length&&!vendorMode&&!previewAs)meta.textContent+="  発注:"+t.orders.map(o=>o.name+"("+(o.ordered?"済":"期限"+ordDue(t,o).slice(5).replace("-","/"))+")").join("、");
     if(t.confirmedBy)meta.textContent+="  ✔業者が確定:"+t.confirmedBy;
     body.append(nm,meta);
     if(t.flex&&((vendorMode&&hasWho(t,vendorNm))||(previewAs&&hasWho(t,previewAs)))){
@@ -1108,10 +1152,24 @@ function openForm(t){
   fillTypes(t?(t.type||"その他"):"");
   $("fName").value=t?t.name:"";fillWho(t?t.who||"":"",t?t.who2||"":"",t?t.who3||"":"");
   $("fStart").value=t?t.start:sel;$("fEnd").value=t?t.end:sel;$("fStart").dataset.prev=$("fStart").value;$("fNote").value=t?t.note||"":"";
-  const al2=!t||t.allDay!==false;$("fAll").checked=al2;$("fTimes").hidden=al2;$("fT1").value=t&&t.t1?t.t1:"08:00";$("fT2").value=t&&t.t2?t.t2:"09:00";$("fSkip").checked=!!(t&&t.skipOff);$("fSkipHol").checked=!!(t&&t.skipHol);$("fKind").value=t&&(t.kind==="meeting"||t.kind==="personal")?t.kind:"work";setKind();attSel=new Set(t&&t.attendees||[]);renderAtt();mvSel=new Set(t&&t.mvend||[]);renderMv();$("fFlex").checked=!!(t&&t.flex);$("fNeed").value=t&&t.need||"";setFlex();
+  const al2=!t||t.allDay!==false;$("fAll").checked=al2;$("fTimes").hidden=al2;$("fT1").value=t&&t.t1?t.t1:"08:00";$("fT2").value=t&&t.t2?t.t2:"09:00";$("fSkip").checked=!!(t&&t.skipOff);$("fSkipHol").checked=!!(t&&t.skipHol);$("fKind").value=t&&(t.kind==="meeting"||t.kind==="personal")?t.kind:"work";setKind();attSel=new Set(t&&t.attendees||[]);renderAtt();ordRows=(t&&t.orders||[]).map(o=>({...o}));renderOrdRows();mvSel=new Set(t&&t.mvend||[]);renderMv();$("fFlex").checked=!!(t&&t.flex);$("fNeed").value=t&&t.need||"";setFlex();
   setColor(t?t.color:COLORS[Math.max(formTypes().indexOf($("fType").value),0)%COLORS.length]);
   $("form").hidden=false;$("addBtn").hidden=true;$("fType").focus();
 }
+let ordRows=[];
+function renderOrdRows(){
+  const box=$("fOrdList");box.innerHTML="";
+  ordRows.forEach((o,i)=>{
+    const r=document.createElement("div");r.style.cssText="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px";
+    const nm=document.createElement("input");nm.maxLength=40;nm.placeholder="例:キッチン";nm.value=o.name||"";nm.style.cssText="flex:1;min-width:8em";nm.oninput=()=>{o.name=nm.value};
+    const ld=document.createElement("input");ld.type="number";ld.min="0";ld.max="365";ld.inputMode="numeric";ld.value=o.lead==null?21:o.lead;ld.style.width="4.5em";ld.oninput=()=>{o.lead=Math.max(0,parseInt(ld.value,10)||0)};
+    const lt=document.createElement("span");lt.textContent="日前";lt.style.fontSize=".85rem";
+    const cl=document.createElement("label");cl.className="chk";cl.style.margin="0";const cb=document.createElement("input");cb.type="checkbox";cb.style.width="auto";cb.checked=!!o.ordered;cb.onchange=()=>{o.ordered=cb.checked;o.orderedAt=cb.checked?Date.now():0};cl.append(cb,document.createTextNode(" 発注済み"));
+    const x=document.createElement("button");x.type="button";x.textContent="×";x.setAttribute("aria-label","削除");x.onclick=()=>{ordRows.splice(i,1);renderOrdRows()};
+    r.append(nm,ld,lt,cl,x);box.appendChild(r);
+  });
+}
+$("fOrdAdd").onclick=()=>{ordRows.push({name:"",lead:21,ordered:false});renderOrdRows();const ins=$("fOrdList").querySelectorAll("input:not([type])");if(ins.length)ins[ins.length-1].focus()};
 let attSel=new Set(),mvSel=new Set();
 function renderMv(){
   const box=$("fMvList");box.innerHTML="";
@@ -1170,7 +1228,7 @@ const setKind=()=>{
   $("fPropWrap").hidden=cur!==ALL||ps;
   $("fPropNewBox").hidden=$("fPropWrap").hidden||$("fProp").value!=="__new";if($("fPropNewBox").hidden)$("fPropSug").hidden=true;
   [$("fType").parentElement,$("fWhoSel").parentElement,$("fWho2Sel").parentElement,$("fWho3Sel").parentElement,$("fSkip").parentElement,$("fSkipHol").parentElement].forEach(e=>e.hidden=m);
-  $("fAttBox").hidden=!m;$("fMvBox").hidden=!m||ps;
+  $("fAttBox").hidden=!m;$("fMvBox").hidden=!m||ps;$("fOrdBox").hidden=m;
   $("fNameLbl").textContent=ps?"予定の内容":m?"打ち合わせの内容":"何工事か(工事名)";$("fName").placeholder=ps?"例:休み、出張、研修":m?"例:現地調査、プラン打ち合わせ":"例:土台敷き";
   if(m){$("fTypeNew").hidden=true;$("fWhoNew").hidden=true;$("fWho2New").hidden=true;$("fWho3New").hidden=true}
   else{$("fTypeNew").hidden=$("fType").value!=="__new";$("fWhoNew").hidden=$("fWhoSel").value!=="__new";$("fWho2New").hidden=$("fWho2Sel").value!=="__new";$("fWho3New").hidden=$("fWho3Sel").value!=="__new"}
@@ -1346,7 +1404,7 @@ $("form").onsubmit=async e=>{
   if(p&&p.id!==LEG&&!nw&&!(p.types||[]).includes(ty)){p.types=[...(p.types||[]),ty];saveProp(p)}
   const color=(document.querySelector("#colors input:checked")||{}).value||COLORS[0];
   const id=editId||"t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  saveTask({id,propId:tp===LEG?"":tp,kind,type:ty,name:$("fName").value.trim(),who,who2,who3,start:s,end:en,color,note:$("fNote").value.trim(),allDay:flex?true:$("fAll").checked,t1:$("fT1").value,t2:$("fT2").value,skipOff:flex?false:$("fSkip").checked,skipHol:flex?false:$("fSkipHol").checked,attendees:nw?[...attSel]:[],mvend:kind==="meeting"?[...mvSel]:[],flex:flex,need:flex&&$("fNeed").value?Math.max(1,Math.min(60,+$("fNeed").value)):0},tasks.find(x=>x.id===id));
+  saveTask({id,propId:tp===LEG?"":tp,kind,type:ty,name:$("fName").value.trim(),who,who2,who3,start:s,end:en,color,note:$("fNote").value.trim(),allDay:flex?true:$("fAll").checked,t1:$("fT1").value,t2:$("fT2").value,skipOff:flex?false:$("fSkip").checked,skipHol:flex?false:$("fSkipHol").checked,attendees:nw?[...attSel]:[],mvend:kind==="meeting"?[...mvSel]:[],orders:nw?[]:ordRows.filter(o=>(o.name||"").trim()).map(o=>({name:o.name.trim(),lead:Math.max(0,o.lead==null?21:o.lead),ordered:!!o.ordered,orderedAt:o.ordered?(o.orderedAt||Date.now()):0})),flex:flex,need:flex&&$("fNeed").value?Math.max(1,Math.min(60,+$("fNeed").value)):0},tasks.find(x=>x.id===id));
   closeForm();
   if(kind==="personal"&&cur!==ALL)$("status").textContent="社内予定は、全物件のカレンダーに入ります";
 };
@@ -1944,7 +2002,7 @@ $("cpGo").onclick=async()=>{
   let n=0;
   for(const t of src){
     const id="t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-    await saveTask({id,propId:p.id,kind:"work",type:t.type||"その他",name:t.name,who:withWho?t.who||"":"",who2:withWho?t.who2||"":"",who3:withWho?t.who3||"":"",start:addD(t.start,off),end:addD(t.end,off),color:t.color||COLORS[0],note:withNote?t.note||"":"",allDay:t.allDay!==false,t1:t.t1||"08:00",t2:t.t2||"17:00",skipOff:!!t.skipOff,skipHol:!!t.skipHol,attendees:[],mvend:[],flex:!!t.flex,need:t.need||0},null);
+    await saveTask({id,propId:p.id,kind:"work",type:t.type||"その他",name:t.name,who:withWho?t.who||"":"",who2:withWho?t.who2||"":"",who3:withWho?t.who3||"":"",start:addD(t.start,off),end:addD(t.end,off),color:t.color||COLORS[0],note:withNote?t.note||"":"",allDay:t.allDay!==false,t1:t.t1||"08:00",t2:t.t2||"17:00",skipOff:!!t.skipOff,skipHol:!!t.skipHol,orders:(t.orders||[]).map(o=>({name:o.name,lead:o.lead,ordered:false,orderedAt:0})),attendees:[],mvend:[],flex:!!t.flex,need:t.need||0},null);
     n++;if(n%5===0)$("toolMsg").textContent="コピー中… "+n+" / "+src.length;
   }
   $("toolMsg").textContent=n+"件の工事をコピーしました。業者や日付は、1件ずつ直せます";cpInfo();
