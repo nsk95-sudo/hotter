@@ -1917,6 +1917,11 @@ function buildIcs(all,inclMeet,pid,kind){
     const title=t.kind==="personal"?"【社内】"+(t.attendees||[]).join("・")+":"+t.name:meet?(t.type==="定期点検"?"◇":"◇打ち合わせ:")+t.name+pn:(t.flex?"【調整中】":"")+t.name+"("+(t.type||"その他")+")"+pn+(t.who?" "+whoS(t):"");
     const desc=[p&&p.addr?"住所:"+p.addr:"",mapLink(p)?"地図:"+mapLink(p):"",t.who?"担当:"+whoS(t):"",t.note||""].filter(Boolean).join("\n");
     const timed=t.allDay===false&&t.t1&&t.t2;
+    if(!meet&&!t.flex&&Math.round((Date.parse(t.end)-Date.parse(t.start))/864e5)+1>=14){
+      const one=(uid,k,lab)=>ev(uid,["SUMMARY:"+icsEsc(lab+title),"DESCRIPTION:"+icsEsc((desc?desc+"\n":"")+"期間:"+t.start.replace(/-/g,"/")+"〜"+t.end.replace(/-/g,"/")),"DTSTART;VALUE=DATE:"+ymdc(k),"DTEND;VALUE=DATE:"+ymdc(dayAfter(k))]);
+      one(t.id+"-s@koutei",t.start,"【着工】");one(t.id+"-e@koutei",t.end,"【竣工】");
+      return;
+    }
     segs(t,p).forEach(([a,b],i)=>{
       const dt=timed?["DTSTART:"+icsUtc(a,t.t1),"DTEND:"+icsUtc(b,t.t2)]:["DTSTART;VALUE=DATE:"+ymdc(a),"DTEND;VALUE=DATE:"+ymdc(dayAfter(b))];
       ev(t.id+"-"+i+"@koutei",["SUMMARY:"+icsEsc(title),"DESCRIPTION:"+icsEsc(desc),...dt]);
