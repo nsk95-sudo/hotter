@@ -43,7 +43,7 @@ form.pf .ok{background:var(--accent);color:var(--accent-ink);border-color:var(--
 .dh{display:flex;flex-wrap:wrap;align-items:baseline;gap:1px 3px}
 .ky{font-size:.55rem;color:var(--sub);white-space:nowrap}
 .kyb{font-size:.5rem;line-height:1.3;padding:0 2px;border-radius:3px;white-space:nowrap}
-.kyg{background:#dff3e6;color:#17663a}.kyr{background:#fde2e1;color:#b3261e}.kyy{background:#fff1c2;color:#7a5b00}.kyx{background:#ececec;color:#555}
+.kyg{background:#dff3e6;color:#17663a}.kyr{background:#fde2e1;color:#b3261e}.kyy{background:#fff1c2;color:#7a5b00}.kyx{background:#ececec;color:#555}.kyc{background:#e3e7fb;color:#3c4a9a}
 @media (min-width:900px){.ky{font-size:.66rem}.kyb{font-size:.6rem}}
 .chip{font-size:.62rem;line-height:1.25;padding:1px 3px;border-radius:3px;color:#fff;white-space:normal;word-break:break-all;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;flex:none}
 .chip b{font-weight:700;margin-right:2px}
@@ -174,6 +174,10 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
   <button type="button" class="sync" id="hTabS" style="margin:0 0 8px">社内メンバー</button>
   <div id="histList"></div>
   <p class="status" id="histMsg"></p>
+  <h2 style="margin-top:28px">会社の休日</h2>
+  <p class="empty" style="text-align:left">全物件のカレンダーに、会社の休みの印を出します。「工事も休み」にした休みは、全物件で休みとして扱い、灰色になります。「休日を飛ばす」にした工事は、その日を飛ばします。</p>
+  <div id="compBox"></div>
+  <p class="status" id="compMsg"></p>
   <h2 style="margin-top:28px">日程未定のまとめ通知</h2>
   <p class="empty" style="text-align:left">毎週金曜の17時に、日程がまだ決まっていない工事の一覧を、LINEで送ります。送る社内メンバーを選んでください(LINEで名前を登録した人に届きます)。</p>
   <div id="udList" style="display:flex;flex-wrap:wrap;gap:6px 14px"></div>
@@ -451,9 +455,18 @@ function holidays(y){
 }
 const holName=k=>holidays(+k.slice(0,4))[k]||"";
 function getOff(p){const o=(p&&p.off)||{};return {wd:o.wd||[0],hol:o.hol===true,dates:o.dates||[]}}
+let comp={wd:[],wdSite:false,periods:[]};
+function compInfo(k){
+  const wd=new Date(+k.slice(0,4),+k.slice(5,7)-1,+k.slice(8)).getDay();
+  const per=(comp.periods||[]).find(x=>x.from&&x.to&&x.from<=k&&k<=x.to);
+  if(per)return {name:per.name||"休業",site:!!per.site};
+  if((comp.wd||[]).includes(wd))return {name:"定休",site:!!comp.wdSite};
+  return null;
+}
 function isOff(k,p){
   const o=getOff(p),wd=new Date(+k.slice(0,4),+k.slice(5,7)-1,+k.slice(8)).getDay();
-  return o.wd.includes(wd)||(o.hol&&!!holName(k))||o.dates.includes(k);
+  if(o.wd.includes(wd)||(o.hol&&!!holName(k))||o.dates.includes(k))return true;
+  const c=compInfo(k);return !!(c&&c.site);
 }
 const propOf=t=>props.find(p=>p.id===t.propId);
 const shortT=x=>x?String(x).replace(/^0(\d)/,"$1"):"",tpre=t=>t.allDay===false&&t.t1&&!t.flex?shortT(t.t1):"";
@@ -496,7 +509,8 @@ function twoStep(btn,fn){
     if(user){try{if(user.isVendor&&await user.isVendor()){vendorMode=true;vendorNm=await user.vendorName()}}catch(e){}}
     if(user){try{if(await user.isOwner()){const m=await claude.use("mcp");if(m){mcp=m;syncOn=true;gMsg("Googleカレンダーと連携中:あなたのカレンダーに登録されます");$("syncAll").hidden=false}}}catch(e){}}
     tasksRef=db.collection("tasks");propsRef=db.collection("props");settingsRef=db.collection("settings");
-    if(canWrite)settingsRef.onSnapshot(s=>{const nd=s.docs.find(x=>x.id==="notify");udTo=nd&&nd.data().undecidedTo||[];rpTo=nd&&nd.data().replyTo||[];odTo=nd&&nd.data().orderTo||[];const h=s.docs.find(x=>x.id==="history");if(h){const hd=h.data();hist={types:hd.types||[],vendors:hd.vendors||[],staff:hd.staff||[]}}hLoaded=true;const d=s.docs.find(x=>x.id==="feeds");reformTok=d&&d.data().reformToken||"";notifyTok=d&&d.data().notifyToken||"";feedRefresh();feedSched()},()=>{});
+    if(!canWrite&&settingsRef.docSnap)settingsRef.docSnap("company",d=>setComp(d));
+    if(canWrite)settingsRef.onSnapshot(s=>{const cd=s.docs.find(x=>x.id==="company");setComp(cd?cd.data():null);const nd=s.docs.find(x=>x.id==="notify");udTo=nd&&nd.data().undecidedTo||[];rpTo=nd&&nd.data().replyTo||[];odTo=nd&&nd.data().orderTo||[];const h=s.docs.find(x=>x.id==="history");if(h){const hd=h.data();hist={types:hd.types||[],vendors:hd.vendors||[],staff:hd.staff||[]}}hLoaded=true;const d=s.docs.find(x=>x.id==="feeds");reformTok=d&&d.data().reformToken||"";notifyTok=d&&d.data().notifyToken||"";feedRefresh();feedSched()},()=>{});
     propsRef.onSnapshot(s=>{props=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.ts||0)-(b.ts||0));pLoaded=true;rawProps=props;applyData();feedSched()},()=>{});
     tasksRef.onSnapshot(s=>{
       tasks=s.docs.map(d=>({id:d.id,...d.data()}));rawTasks=tasks;
@@ -590,7 +604,7 @@ function renderHist(){
   });
 }
 $("hTabT").onclick=()=>{hTab="t";renderHist()};$("hTabV").onclick=()=>{hTab="v";renderHist()};$("hTabS").onclick=()=>{hTab="s";renderHist()};
-$("btnUsers").addEventListener("click",()=>setTimeout(()=>{renderHist();renderUd()},0));
+$("btnUsers").addEventListener("click",()=>setTimeout(()=>{renderHist();renderUd();renderComp()},0));
 function renderUd(){
   const names=allStaff();
   [["udList",()=>udTo,v=>udTo=v],["rpList",()=>rpTo,v=>rpTo=v],["odList",()=>odTo,v=>odTo=v]].forEach(([id,get,set])=>{
@@ -635,6 +649,33 @@ async function histRename(kind,n){
   try{await histSave()}catch(e){ng++}
   $("histMsg").textContent="「"+n+"」を「"+to+"」に変えました"+(ng?"("+ng+"件は直せませんでした)":"")+(kind==="v"?"。業者のアカウントやLINEの登録名は、別に直してください":"");
   renderHist();
+}
+// ---- 会社の休日 ----
+function setComp(d){const n=d?{wd:d.wd||[],wdSite:!!d.wdSite,periods:d.periods||[]}:{wd:[],wdSite:false,periods:[]};const ch=JSON.stringify(n)!==JSON.stringify(comp);comp=n;if(ch){render();feedSched();if($("compBox"))renderComp()}}
+let compEdit=null;
+function renderComp(){
+  const box=$("compBox");if(!box)return;compEdit=JSON.parse(JSON.stringify(comp));box.innerHTML="";
+  const wdr=document.createElement("div");wdr.style.cssText="display:flex;flex-wrap:wrap;gap:6px 12px;margin:4px 0";
+  WD.forEach((w,i)=>{const l=document.createElement("label");l.className="chk";l.style.margin="0";const c=document.createElement("input");c.type="checkbox";c.style.width="auto";c.checked=compEdit.wd.includes(i);c.onchange=()=>{compEdit.wd=c.checked?[...compEdit.wd,i]:compEdit.wd.filter(x=>x!==i)};l.append(c,document.createTextNode(" "+w));wdr.appendChild(l)});
+  const t1=document.createElement("div");t1.className="fld";t1.style.fontWeight="600";t1.textContent="定休日の曜日";
+  const ws=document.createElement("label");ws.className="chk";const wc=document.createElement("input");wc.type="checkbox";wc.style.width="auto";wc.checked=compEdit.wdSite;wc.onchange=()=>{compEdit.wdSite=wc.checked};ws.append(wc,document.createTextNode(" 定休日は工事も休み(全物件で休みとして扱います)"));
+  const t2=document.createElement("div");t2.className="fld";t2.style.cssText="font-weight:600;margin-top:10px";t2.textContent="休業期間(年末年始・GW・お盆・臨時休業など)";
+  const pl=document.createElement("div");
+  const draw=()=>{pl.innerHTML="";compEdit.periods.forEach((x,i)=>{
+    const r=document.createElement("div");r.style.cssText="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 0;border-top:1px solid var(--line)";
+    const nm=document.createElement("input");nm.maxLength=20;nm.placeholder="例:年末年始休業";nm.value=x.name||"";nm.style.cssText="flex:1;min-width:8em";nm.oninput=()=>{x.name=nm.value};
+    const f=document.createElement("input");f.type="date";f.value=x.from||"";f.onchange=()=>{x.from=f.value;if(!x.to||x.to<x.from){x.to=x.from;tt.value=x.to}};
+    const sep=document.createElement("span");sep.textContent="〜";
+    const tt=document.createElement("input");tt.type="date";tt.value=x.to||"";tt.onchange=()=>{x.to=tt.value};
+    const sl=document.createElement("label");sl.className="chk";sl.style.margin="0";const sc=document.createElement("input");sc.type="checkbox";sc.style.width="auto";sc.checked=!!x.site;sc.onchange=()=>{x.site=sc.checked};sl.append(sc,document.createTextNode(" 工事も休み"));
+    const del=document.createElement("button");del.type="button";del.textContent="×";del.setAttribute("aria-label","削除");del.onclick=()=>{compEdit.periods.splice(i,1);draw()};
+    r.append(nm,f,sep,tt,sl,del);pl.appendChild(r)})};
+  draw();
+  const add=document.createElement("button");add.type="button";add.className="sync";add.style.margin="6px 0";add.textContent="＋休業期間を追加";add.onclick=()=>{compEdit.periods.push({name:"",from:"",to:"",site:false});draw()};
+  const sv=document.createElement("button");sv.type="button";sv.className="primary";sv.textContent="会社の休日を保存";
+  sv.onclick=async()=>{const d={wd:compEdit.wd.sort(),wdSite:!!compEdit.wdSite,periods:compEdit.periods.filter(x=>x.from&&x.to).map(x=>({name:(x.name||"休業").trim(),from:x.from,to:x.to<x.from?x.from:x.to,site:!!x.site})).sort((a,b)=>a.from<b.from?-1:1)};
+    try{await settingsRef.doc("company").set(d);$("compMsg").textContent="保存しました";}catch(e){$("compMsg").textContent="保存できませんでした。ルールを更新しましたか?"}};
+  box.append(t1,wdr,ws,t2,pl,add,sv);
 }
 // ---- 発注の管理 ----
 async function markOrdered(t,i,val){
@@ -996,10 +1037,12 @@ function renderGrid(){
     b.className="d"+(d.getDay()===0?" su":d.getDay()===6?" sa":"")+(d.getMonth()!==view.getMonth()?" out":"")+(holName(key)?" hol":"")+(isOff(key,cp)?" off":"")+(handsOn(key).length?" hand":"")+(key===today?" today":"")+(key===sel?" sel":"");
     b.setAttribute("aria-label",`${d.getMonth()+1}月${d.getDate()}日`);
     const n=document.createElement("span");n.className="n";n.textContent=d.getDate();
+    {const ci=compInfo(key);if(ci&&!showKy){const dh=document.createElement("span");dh.className="dh";dh.appendChild(n);const e=document.createElement("span");e.className="kyb kyc";e.textContent=ci.name;dh.appendChild(e);b.appendChild(dh)}}
     if(showKy){const dh=document.createElement("span");dh.className="dh";dh.appendChild(n);const k=kyOf(key),t=document.createElement("span");t.className="ky";t.textContent=k.r6+(k.choku?"・"+k.choku:"");dh.appendChild(t);
+      {const ci=compInfo(key);if(ci){const e=document.createElement("span");e.className="kyb kyc";e.textContent=ci.name;dh.appendChild(e)}}
       const bd=(txt,c)=>{const e=document.createElement("span");e.className="kyb "+c;e.textContent=txt;dh.appendChild(e)};
       if(k.kichi)bd("建吉","kyg");k.marks.forEach(([nm,g])=>bd(nm==="一粒万倍日"?"万倍":nm==="天赦日"?"天赦":nm==="三隣亡"?"三隣亡":"不成就",nm==="三隣亡"?"kyr":g?"kyy":"kyx"));
-      b.appendChild(dh)}else b.appendChild(n);
+      b.appendChild(dh)}else if(!compInfo(key))b.appendChild(n);
     const hd=handsOn(key),day=ct.filter(t=>onDay(t,key)).sort((a,b)=>(!!a.flex)-(!!b.flex));
     ordsOn(key).forEach(({t,o})=>{const c=document.createElement("span");c.className="chip ord";c.textContent="発注:"+o.name+(cur===ALL&&propOf(t)?"("+propOf(t).name+")":"");b.appendChild(c)});
     hd.forEach(h=>{const c=document.createElement("span");c.className="chip hand";c.textContent=cur===ALL?"引渡予定:"+h.name:"引き渡し予定";b.appendChild(c)});
@@ -1094,6 +1137,7 @@ function renderDay(){
   const [y,m,d]=sel.split("-").map(Number);
   const hn=holName(sel);
   $("dayTitle").textContent=`${m}月${d}日(${WD[new Date(y,m-1,d).getDay()]}${hn?"・祝 "+hn:""})の工事`+(handsOn(sel).length?" ★引き渡し日":"");
+  {const ci=compInfo(sel);if(ci){const cs=document.createElement("small");cs.style.cssText="display:block;font-size:.75rem;font-weight:600;color:#3c4a9a";cs.textContent="会社:"+ci.name+(ci.site?"(工事も休み)":"");$("dayTitle").appendChild(cs)}}
   if(showKy){const k=kyOf(sel);const sm=document.createElement("small");sm.style.cssText="display:block;font-size:.75rem;font-weight:400;color:var(--sub)";sm.textContent=[k.r6,k.choku?"十二直:"+k.choku:"",k.kichi?"建築吉日":"",...k.marks.map(x=>x[0]),k.lunar?"旧暦 "+(k.lunar.leap?"閏":"")+k.lunar.m+"月"+k.lunar.d+"日":""].filter(Boolean).join("・");$("dayTitle").appendChild(sm)}
   const box=$("dayList");box.innerHTML="";
   const day=curTasks().filter(t=>onDay(t,sel));
@@ -2227,6 +2271,7 @@ function startApp(u,role,vendorName){
       }
       return onSnapshot(name==="tasks"?tq():collection(fs,name),s=>next(wrap(s)),err);
     },
+    docSnap:(id,next)=>onSnapshot(doc(fs,name,id),d=>next(d.exists()?d.data():null),()=>{}),
     doc:id=>({
       set:b=>retry(()=>setDoc(doc(fs,name,id),JSON.parse(JSON.stringify(b)))),
       update:b=>retry(()=>updateDoc(doc(fs,name,id),JSON.parse(JSON.stringify(b)))),
