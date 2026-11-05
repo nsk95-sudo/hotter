@@ -209,7 +209,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
   </div>
   <form class="pf" id="propForm" hidden>
     <input id="pName" required maxlength="40" placeholder="物件名 例:山田邸新築" aria-label="物件名">
-    <select id="pStage" aria-label="段階"><option value="contract">契約済み(工事中)</option><option value="sales">接客中</option></select>
+    <select id="pStage" aria-label="段階"><option value="contract">契約済み(工事中)</option><option value="sales">接客中</option><option value="done">引き渡し済み</option></select>
     <button type="submit" class="ok">追加</button>
     <button type="button" id="pCancel">戻る</button>
   </form>
@@ -360,7 +360,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
       <button type="button" class="primary" id="addBtn">この日に工事を追加</button>
       <form id="form" hidden>
         <label id="fPropWrap" hidden>物件<select id="fProp"></select></label>
-        <div id="fPropNewBox" class="row2" hidden><input id="fPropNew" maxlength="40" placeholder="新しい物件名 例:山田邸リフォーム" aria-label="新しい物件名"><select id="fPropStage" aria-label="段階"><option value="contract">契約済み(工事中)</option><option value="sales">接客中</option></select></div>
+        <div id="fPropNewBox" class="row2" hidden><input id="fPropNew" maxlength="40" placeholder="新しい物件名 例:山田邸リフォーム" aria-label="新しい物件名"><select id="fPropStage" aria-label="段階"><option value="contract">契約済み(工事中)</option><option value="sales">接客中</option><option value="done">引き渡し済み</option></select></div>
         <div id="fPropSug" hidden style="display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 8px"></div>
         <label>種類<select id="fKind"><option value="work">工事</option><option value="meeting">打ち合わせ(横棒の工程表には出しません)</option><option value="personal">社内予定(休み・出張など、個人の予定)</option></select></label>
         <label>工事種別<select id="fType"></select></label>
@@ -1213,7 +1213,9 @@ function openForm(t){
   $("fPropWrap").hidden=cur!==ALL;
   if(cur===ALL){
     const fp=$("fProp"),own=t?(t.propId||LEG):"";fp.innerHTML="";
-    propList().filter(q=>!isDone(q)||q.id===own).forEach(q=>{const o=document.createElement("option");o.value=q.id;o.textContent=q.name;fp.appendChild(o)});
+    {const pl=propList(),act=pl.filter(q=>!isDone(q)),dn=pl.filter(q=>isDone(q));
+     act.forEach(q=>{const o=document.createElement("option");o.value=q.id;o.textContent=(stageOf(q)==="sales"?"【接客】":"")+q.name;fp.appendChild(o)});
+     if(dn.length){const g=document.createElement("optgroup");g.label="引き渡し済み・見送り";dn.forEach(q=>{const o=document.createElement("option");o.value=q.id;o.textContent=q.name+(stageOf(q)==="lost"?"(見送り)":"(引き渡し済み)");g.appendChild(o)});fp.appendChild(g)}}
     {const o=document.createElement("option");o.value="__new";o.textContent="＋新しい物件を作る";fp.appendChild(o)}
     if(own)fp.value=own;else if(fp.options.length===1)fp.value="__new";
     $("fPropNew").value="";$("fPropSug").hidden=true;
