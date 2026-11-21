@@ -106,7 +106,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
 .offrow button:disabled{opacity:.3;cursor:default}
 .fld{display:grid;gap:2px;font-size:.8rem;color:var(--sub);margin-top:8px}
 .fld input{padding:9px 10px;font:inherit;font-size:1rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;width:100%}
-.mapprev{width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px}
+.mapprev{width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px;touch-action:none;cursor:crosshair}
 .fld textarea{padding:9px 10px;font:inherit;font-size:1rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;width:100%}
 .fld select{padding:9px 10px;font:inherit;font-size:1rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;width:100%}
 .addr{padding:0 6px 10px;font-size:.88rem;overflow-wrap:anywhere}
@@ -265,9 +265,13 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
     <label class="fld">背景の季節(自動なら、発行日の季節の絵になります)<select id="iLseason"><option value="">自動</option><option value="spring">春</option><option value="summer">夏</option><option value="autumn">秋</option><option value="winter">冬</option></select></label>
     <label class="fld">地図の広さ<select id="iMapZoom"><option value="16">広域</option><option value="17">標準</option><option value="18">拡大</option></select></label>
     <label class="fld">地図の画像(住所から地図を作れないときに選びます)<input id="iMapFile" type="file" accept="image/*"></label>
-    <label class="chk"><input type="checkbox" id="iMapMark"> 選んだ画像の中心に「工事場所」の印を付ける(画像にすでに印がある場合は、チェックしません)</label>
+    <label class="chk"><input type="checkbox" id="iMapMark"> 選んだ画像の中心に「工事場所」の印を付ける(画像にすでに印がある場合や、自分で囲む場合は、チェックしません)</label>
     <div id="mapStat" class="empty"></div>
     <div class="row2"><button type="button" id="iMapTest" class="sync">地図を確認</button><button type="button" id="iMapDel" class="sync" hidden>画像を削除</button></div>
+    <div id="mapDrawBox" hidden>
+      <p class="empty" style="text-align:left;padding:6px 0 0">地図の上を指でなぞる(ドラッグする)と、なぞった範囲を「工事場所」として囲みます。やり直すときは、もう一度なぞってください。</p>
+      <div class="row2"><label class="fld">囲みの形<select id="iMapShape"><option value="rect">四角</option><option value="ellipse">丸</option></select></label><button type="button" id="iMapBoxClear" class="sync">囲みを消す</button></div>
+    </div>
     <canvas id="mapPrev" class="mapprev" hidden></canvas>
     <div class="fld">物件の色(全物件表示で使います)</div>
     <div class="colors" id="pcolors" role="radiogroup" aria-label="物件の色"></div>
@@ -1351,7 +1355,7 @@ function openInfo(){
   const p=curProp();if(!p)return;
   $("iName").value=p.name||"";$("iAddr").value=p.addr||"";$("iMap").value=p.mapUrl||"";$("iHand").value=p.handover||"";$("iStart").value=p.start||"";$("iKind").value=p.kind||"";$("iStage").value=stageOf(p);$("iVpub").value=p.vpub||"on";vpubNote();$("iZip").value=p.zip?p.zip.slice(0,3)+"-"+p.zip.slice(3):"";
   markPcolors();
-  $("iDrop").value=p.dropbox||"";$("iLtext").value=p.letterText||"";$("iLperiod").value=p.letterPeriod||"";$("iLdate").value=p.letterDate||"";$("iLseason").value=p.letterSeason||"";$("iMapZoom").value=String(p.mapZoom||17);$("iMapMark").checked=p.mapImgMark===true;$("mapPrev").hidden=true;mapStatRefresh();
+  $("iDrop").value=p.dropbox||"";$("iLtext").value=p.letterText||"";$("iLperiod").value=p.letterPeriod||"";$("iLdate").value=p.letterDate||"";$("iLseason").value=p.letterSeason||"";$("iMapZoom").value=String(p.mapZoom||17);$("iMapMark").checked=p.mapImgMark===true;$("mapPrev").hidden=true;$("mapDrawBox").hidden=true;mapBase=null;mapFull=null;mapStatRefresh();
   $("infoPanel").hidden=false;renderTypeOrder();feedRefresh();renderInsp();
 }
 $("infoBtn").onclick=()=>{if($("infoPanel").hidden)openInfo();else $("infoPanel").hidden=true};
@@ -1858,7 +1862,7 @@ async function locate(p){
   return {pos:g};
 }
 function mapWhy(w){return w==="noaddr"?"住所が入っていません":w==="geo"?"住所から場所を特定できませんでした":w==="tile"?"地図データを取得できませんでした":""}
-async function buildMapCanvas(p,W,H,S){
+async function buildMapCanvas(p,W,H,S,noMark){
   const c=document.createElement("canvas");c.width=W;c.height=H;
   const g=c.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,W,H);
   let ok=false,mark=true,why="",tiles=false;
@@ -1885,7 +1889,8 @@ async function buildMapCanvas(p,W,H,S){
     }else why=lc.why||"geo";
   }
   if(!ok)return {c,ok:false,why};
-  if(mark){
+  if(!noMark&&p.mapBox&&p.mapBox.w>0&&p.mapBox.h>0){drawMapBox(g,W,H,S,p.mapBox,p.mapShape);mark=false}
+  if(mark&&!noMark){
     const mw=15*S,mh=17*S,bw=94*S,bh=28*S;
     const bx=Math.min(Math.max(W/2+28*S,8*S),W-bw-8*S),by=Math.min(Math.max(H/2-64*S,8*S),H-bh-8*S);
     g.strokeStyle="#e0202a";g.lineWidth=2*S;g.beginPath();g.moveTo(W/2,H/2);g.lineTo(bx,by+bh/2);g.stroke();
@@ -1902,6 +1907,23 @@ async function buildMapCanvas(p,W,H,S){
     g.fillStyle="#444";g.fillText(t,W-3*S,H-11*S);g.textAlign="left";
   }
   return {c,ok:true,why:""};
+}
+function drawMapBox(g,W,H,S,b,shape){
+  const x=b.x*W,y=b.y*H,w=b.w*W,h=b.h*H;
+  g.save();g.strokeStyle="#e0202a";g.fillStyle="rgba(224,32,42,0.15)";g.lineWidth=2.8*S;
+  g.beginPath();
+  if(shape==="ellipse")g.ellipse(x+w/2,y+h/2,Math.max(w/2,1),Math.max(h/2,1),0,0,Math.PI*2);else g.rect(x,y,w,h);
+  g.fill();g.stroke();
+  const bw=94*S,bh=28*S,gap=12*S;
+  let bx=x+w+gap,by=y-bh-gap/2,ax=shape==="ellipse"?x+w/2+w/2*0.707:x+w,ay=shape==="ellipse"?y+h/2-h/2*0.707:y;
+  if(bx+bw>W-6*S){bx=x-bw-gap;ax=shape==="ellipse"?x+w/2-w/2*0.707:x}
+  if(bx<6*S)bx=Math.min(Math.max(x+w/2-bw/2,6*S),W-bw-6*S);
+  if(by<6*S){by=y+h+gap/2;ay=shape==="ellipse"?y+h/2+h/2*0.707:y+h;if(by+bh>H-6*S)by=Math.max(6*S,y+h/2-bh/2)}
+  by=Math.min(Math.max(by,6*S),H-bh-6*S);
+  g.lineWidth=2*S;g.beginPath();g.moveTo(ax,ay);g.lineTo(Math.min(Math.max(ax,bx),bx+bw),Math.min(Math.max(ay,by),by+bh));g.stroke();
+  g.fillStyle="#fff";g.fillRect(bx,by,bw,bh);g.strokeRect(bx,by,bw,bh);
+  g.fillStyle="#e0202a";g.font="bold "+(17*S)+"px "+FONT;g.textAlign="center";g.textBaseline="middle";g.fillText("工事場所",bx+bw/2,by+bh/2);
+  g.restore();
 }
 function drawLetterHalf(x,d,im){
   x.textBaseline="top";x.textAlign="left";
@@ -1996,9 +2018,9 @@ $("iLtext").onchange=()=>updInfo({letterText:$("iLtext").value.trim()});
 $("iLperiod").onchange=()=>updInfo({letterPeriod:$("iLperiod").value.trim()});
 $("iLseason").onchange=()=>updInfo({letterSeason:$("iLseason").value});
 $("iLdate").onchange=()=>updInfo({letterDate:$("iLdate").value});
-$("iMapZoom").onchange=()=>updInfo({mapZoom:+$("iMapZoom").value});
+$("iMapZoom").onchange=()=>{const p=curProp();updInfo({mapZoom:+$("iMapZoom").value,mapBox:null});mapBase=null;$("mapPrev").hidden=true;$("mapDrawBox").hidden=true;if(p&&p.mapBox)$("status").textContent="地図の広さを変えたので、囲みを消しました。「地図を確認」から囲み直してください"};
 $("iMapMark").onchange=()=>updInfo({mapImgMark:$("iMapMark").checked});
-$("iMapDel").onclick=()=>{updInfo({mapImg:null});mapStatRefresh()};
+$("iMapDel").onclick=()=>{updInfo({mapImg:null,mapBox:null});mapStatRefresh();mapBase=null;$("mapPrev").hidden=true;$("mapDrawBox").hidden=true};
 $("iMapFile").onchange=async()=>{
   const f=$("iMapFile").files[0];if(!f)return;
   try{
@@ -2009,17 +2031,39 @@ $("iMapFile").onchange=async()=>{
     cv.getContext("2d").drawImage(im,0,0,cv.width,cv.height);
     const d=cv.toDataURL("image/jpeg",0.78);
     if(d.length>700000){$("status").textContent="画像が大きすぎます。画面の範囲だけを切り取った画像を選んでください";return}
-    updInfo({mapImg:d,mapImgMark:$("iMapMark").checked});mapStatRefresh();
+    updInfo({mapImg:d,mapImgMark:$("iMapMark").checked,mapBox:null});mapStatRefresh();mapBase=null;$("mapPrev").hidden=true;$("mapDrawBox").hidden=true;
   }catch(e){$("status").textContent="画像を読み込めませんでした"}
   $("iMapFile").value="";
 };
+let mapBase=null,mapFull=null,mapDrag=null;
+const MS=1240/724,MW=Math.round(318*MS),MH=Math.round(215*MS);
+function mapRedraw(tmp){
+  const p=curProp(),cv=$("mapPrev");if(!p||!mapBase)return;
+  const g=cv.getContext("2d");g.drawImage(mapBase,0,0);
+  const b=tmp||p.mapBox;
+  if(b&&b.w>0&&b.h>0)drawMapBox(g,MW,MH,MS,b,$("iMapShape").value);
+  else if(mapFull)g.drawImage(mapFull,0,0);
+}
 $("iMapTest").onclick=async()=>{
   const p=curProp();if(!p)return;
   $("mapStat").textContent="地図を作っています…";
-  const S=1240/724,W=Math.round(318*S),H=Math.round(215*S),m=await buildMapCanvas(p,W,H,S),cv=$("mapPrev");
-  cv.width=W;cv.height=H;cv.getContext("2d").drawImage(m.c,0,0);cv.hidden=false;
-  $("mapStat").textContent=m.ok?"この地図で挨拶文を作ります。位置や広さが違うときは、地図の拡大を変えるか、画像を選んでください":mapWhy(m.why)+"。地図の画像を選んでください";
+  const base=await buildMapCanvas(p,MW,MH,MS,true),full=await buildMapCanvas(p,MW,MH,MS),cv=$("mapPrev");
+  cv.width=MW;cv.height=MH;mapBase=base.ok?base.c:null;mapFull=full.ok?full.c:null;cv.getContext("2d").drawImage(full.c,0,0);cv.hidden=false;
+  $("mapDrawBox").hidden=!base.ok;$("iMapShape").value=p.mapShape==="ellipse"?"ellipse":"rect";
+  $("mapStat").textContent=base.ok?"この地図で挨拶文を作ります。工事場所は、地図の上をなぞって囲めます。位置や広さが違うときは、地図の広さを変えるか、画像を選んでください":mapWhy(base.why)+"。地図の画像を選んでください";
 };
+function mapPt(e){const r=$("mapPrev").getBoundingClientRect();return {x:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),y:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))}}
+$("mapPrev").addEventListener("pointerdown",e=>{if(!mapBase||!canWrite)return;e.preventDefault();$("mapPrev").setPointerCapture(e.pointerId);mapDrag=mapPt(e)});
+$("mapPrev").addEventListener("pointermove",e=>{if(!mapDrag)return;e.preventDefault();const q=mapPt(e);mapRedraw({x:Math.min(mapDrag.x,q.x),y:Math.min(mapDrag.y,q.y),w:Math.abs(q.x-mapDrag.x),h:Math.abs(q.y-mapDrag.y)})});
+$("mapPrev").addEventListener("pointerup",e=>{
+  if(!mapDrag)return;const q=mapPt(e),a=mapDrag;mapDrag=null;
+  const b={x:+Math.min(a.x,q.x).toFixed(4),y:+Math.min(a.y,q.y).toFixed(4),w:+Math.abs(q.x-a.x).toFixed(4),h:+Math.abs(q.y-a.y).toFixed(4)};
+  if(b.w<0.02||b.h<0.02){mapRedraw();$("status").textContent="もう少し大きくなぞってください";return}
+  updInfo({mapBox:b,mapShape:$("iMapShape").value});mapRedraw(b);$("status").textContent="工事場所の囲みを保存しました";
+});
+$("mapPrev").addEventListener("pointercancel",()=>{mapDrag=null;mapRedraw()});
+$("iMapShape").onchange=()=>{updInfo({mapShape:$("iMapShape").value});mapRedraw()};
+$("iMapBoxClear").onclick=async()=>{updInfo({mapBox:null});$("status").textContent="囲みを消しました";if(mapBase){const p={...curProp(),mapBox:null},f=await buildMapCanvas(p,MW,MH,MS);mapFull=f.ok?f.c:null;$("mapPrev").getContext("2d").drawImage(f.c,0,0)}};
 
 // ---- 休日設定 ----
 function updOff(part){
