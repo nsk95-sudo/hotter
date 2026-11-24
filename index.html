@@ -307,7 +307,7 @@ form input,form select,form textarea{padding:9px 10px;font:inherit;font-size:1re
     <h3 style="font-size:1rem;margin:22px 0 4px">工程をまとめてずらす</h3>
     <p class="empty" style="text-align:left;padding:2px 0">基準日以降に始まる工事を、まとめて前後にずらします。後ろへは「3」、前へは「-3」のように入れます。</p>
     <div class="row2"><label class="fld">基準日<input type="date" id="shFrom"></label><label class="fld">ずらす日数<input type="number" id="shDays" value="1" inputmode="numeric"></label></div>
-    <label class="chk"><input type="checkbox" id="shWork" checked style="width:auto"> 休みの日は数えない(この物件の休日設定で数えます)</label>
+    <label class="chk"><input type="checkbox" id="shWork" checked style="width:auto"> 休みの日は数えない(この物件の休日と、会社の「工事も休み」の日で数えます。作業日数はそのまま保ち、休みの日には入れません)</label>
     <label class="chk"><input type="checkbox" id="shMeet" style="width:auto"> 打ち合わせもずらす</label>
     <label class="chk"><input type="checkbox" id="shHand" checked style="width:auto"> 引き渡し予定日もずらす</label>
     <p class="empty" id="shInfo" style="text-align:left;padding:2px 0"></p>
@@ -2137,6 +2137,20 @@ function shiftK(k,n,p,work){
   while(c>0){d=addD(d,st);if(!isOff(d,p))c--}
   return d;
 }
+function shiftTask(t,n,p,work){
+  if(!work||t.flex){const a=shiftK(t.start,n,p,work),b=t.end===t.start?a:shiftK(t.end,n,p,work);return {start:a,end:b<a?a:b}}
+  const ok=k=>!isOff(k,p)&&!(t.skipHol&&!!holName(k)),st=n>0?1:-1;
+  const mv=(k,c)=>{let d=k;while(c>0){d=addD(d,st);if(ok(d))c--}return d};
+  const s=mv(t.start,Math.abs(n));
+  if(!(t.end>t.start))return {start:s,end:s};
+  let W=0,showOff=false;
+  for(let k=t.start;k<=t.end;k=dayAfter(k)){if(ok(k))W++;else if(!t.skipOff&&isOff(k,p))showOff=true}
+  if(showOff){const e=mv(t.end,Math.abs(n));return {start:s,end:e<s?s:e}}
+  let e=s,c=1;while(c<Math.max(W,1)){e=dayAfter(e);if(ok(e))c++}
+  const r={start:s,end:e};
+  if(!t.skipOff){for(let k=s;k<=e;k=dayAfter(k))if(isOff(k,p)){r.skipOff=true;break}}
+  return r;
+}
 let shOff=new Set();
 const shTargetsAll=()=>{const b=$("shFrom").value;return b?curTasks().filter(t=>t.start>=b&&t.type!=="定期点検"&&($("shMeet").checked||t.kind!=="meeting")):[]};
 const shTargets=()=>shTargetsAll().filter(t=>!shOff.has(t.id));
@@ -2162,14 +2176,17 @@ $("shGo").onclick=async()=>{
   const p=curProp(),n=parseInt($("shDays").value,10),ts=shTargets(),work=$("shWork").checked;if(!p)return;
   if(!n||!ts.length){shInfo();return}
   if(!confirm(ts.length+"件の工事を、"+(n>0?n+"日後ろ":(-n)+"日前")+"へずらします。よろしいですか?"))return;
-  let k=0,ng=0;
+  let k=0,ng=0,sk=0;
   for(const t of ts){
-    const ns=shiftK(t.start,n,p,work),ne=t.end===t.start?ns:shiftK(t.end,n,p,work);
-    try{if(tasksRef)await tasksRef.doc(t.id).update({start:ns,end:ne<ns?ns:ne});else await saveTask({...t,start:ns,end:ne<ns?ns:ne},t)}catch(e){ng++}
+    const u=shiftTask(t,n,p,work),nt={...t,...u};
+    if(u.skipOff)sk++;
+    if(!notWork(t)&&(nt.skipOff||nt.skipHol)&&!nt.flex){const d=[];segs(nt,p).forEach(([a,b])=>{for(let x=a;x<=b;x=dayAfter(x))d.push(x)});u.days=d;nt.days=d}
+    if(t.orders&&t.orders.length){u.orders=t.orders.map(o=>({...o,due:ordDue(nt,o)}));nt.orders=u.orders}
+    try{if(tasksRef)await tasksRef.doc(t.id).update(u);else await saveTask(nt,t)}catch(e){ng++}
     k++;if(k%5===0)$("toolMsg").textContent="ずらしています… "+k+" / "+ts.length;
   }
   if($("shHand").checked&&p.handover&&p.handover>=$("shFrom").value)updInfo({handover:shiftK(p.handover,n,p,work)});
-  $("toolMsg").textContent=(k-ng)+"件の工事をずらしました"+(ng?"("+ng+"件はずらせませんでした)":"");shInfo();
+  $("toolMsg").textContent=(k-ng)+"件の工事をずらしました"+(ng?"("+ng+"件はずらせませんでした)":"")+(sk?"。休みの日をまたいだ"+sk+"件は、作業日数はそのままで「休日は作業しない」にしました":"");shInfo();
 };
 $("toolBtn").onclick=()=>{if($("toolPanel").hidden)openTool();else $("toolPanel").hidden=true};
 $("toolClose").onclick=()=>{$("toolPanel").hidden=true};
